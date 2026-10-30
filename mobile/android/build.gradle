@@ -8,7 +8,8 @@ buildscript {
   dependencies {
     classpath('com.android.tools.build:gradle')
     classpath('com.facebook.react:react-native-gradle-plugin')
-    classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
+    def kotlinVersion = findProperty('android.kotlinVersion')
+    classpath(kotlinVersion ? "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion" : 'org.jetbrains.kotlin:kotlin-gradle-plugin')
   }
 }
 
@@ -20,5 +21,18 @@ allprojects {
   }
 }
 
+subprojects { subproject ->
+  subproject.afterEvaluate {
+    if (subproject.hasProperty('android')) {
+      try {
+        if (subproject.android.compileSdk == null) {
+          subproject.android.compileSdk = 37
+        }
+      } catch (Exception ignored) {}
+    }
+  }
+}
+
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"
+

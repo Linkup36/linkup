@@ -148,6 +148,144 @@ export async function setNotificationChannelAsync(channelId, channel) {
   }
 }
 
+function patchExpoConstants() {
+  const constantsGradlePath = path.join(
+    __dirname,
+    '..',
+    'node_modules',
+    'expo-constants',
+    'scripts',
+    'get-app-config-android.gradle'
+  );
+  if (!fs.existsSync(constantsGradlePath)) return;
+  const content = fs.readFileSync(constantsGradlePath, 'utf8');
+  if (content.includes("hasProperty('libraryVariants')")) return;
+
+  const patched = content
+    .replace(
+      /project\.android\.libraryVariants\.all \{ variant ->[\s\S]*?project\.android\.sourceSets\.maybeCreate\(variant\.name\)\.assets\.srcDirs \+= assetsDir\s*\}/,
+      `def hasVariants = project.android.hasProperty('libraryVariants')
+
+  if (hasVariants) {
+    project.android.libraryVariants.all { variant ->
+      def assetsDir = file("$buildDir/generated/assets/expo-constants/\${variant.name}")
+      def configMode = variant.buildType.name == "debug" || variant.buildType.name == "debugOptimized" ? "development" : "production"
+
+      def createConfigTask = tasks.register("create\${variant.name.capitalize()}ExpoConfig", Exec) {
+        description = 'expo-constants: Create app.config.'
+
+        doFirst {
+          assetsDir.deleteDir()
+          assetsDir.mkdirs()
+        }
+
+        outputs.upToDateWhen { false }
+        outputs.dir assetsDir
+        workingDir projectRoot
+
+        if (Os.isFamily(Os.FAMILY_WINDOWS)) {
+          commandLine("cmd", "/c", *nodeExecutableAndArgs, "$expoConstantsDir/scripts/getAppConfig.js", projectRoot, assetsDir, "android", "false", configMode)
+        } else {
+          commandLine(*nodeExecutableAndArgs, "$expoConstantsDir/scripts/getAppConfig.js", projectRoot, assetsDir, "android", "false", configMode)
+        }
+      }
+
+      variant.preBuildProvider.configure { it.dependsOn(createConfigTask) }
+      project.android.sourceSets.maybeCreate(variant.name).assets.srcDirs += assetsDir
+    }
+  } else {
+    ['debug', 'release'].each { variantName ->
+      def assetsDir = file("$buildDir/generated/assets/expo-constants/\${variantName}")
+      def configMode = variantName == "debug" ? "development" : "production"
+
+      def createConfigTask = tasks.register("create\${variantName.capitalize()}ExpoConfig", Exec) {
+        description = 'expo-constants: Create app.config.'
+
+        doFirst {
+          assetsDir.deleteDir()
+          assetsDir.mkdirs()
+        }
+
+        outputs.upToDateWhen { false }
+        outputs.dir assetsDir
+        workingDir projectRoot
+
+        if (Os.isFamily(Os.FAMILY_WINDOWS)) {
+          commandLine("cmd", "/c", *nodeExecutableAndArgs, "$expoConstantsDir/scripts/getAppConfig.js", projectRoot, assetsDir, "android", "false", configMode)
+        } else {
+          commandLine(*nodeExecutableAndArgs, "$expoConstantsDir/scripts/getAppConfig.js", projectRoot, assetsDir, "android", "false", configMode)
+        }
+      }
+
+      tasks.matching { it.name.toLowerCase().contains("prebuild") }.configureEach { it.dependsOn(createConfigTask) }
+      project.android.sourceSets.maybeCreate(variantName).assets.srcDirs += assetsDir
+    }
+  }`
+    )
+    .replace(
+      /project\.android\.libraryVariants\.all \{ variant ->\s*if \(!variant\.buildType\.debuggable\) \{\s*return\s*\}\s*variant\.preBuildProvider\.configure \{ it\.dependsOn\(createFingerprintTask\) \}\s*project\.android\.sourceSets\.maybeCreate\(variant\.buildType\.name\)\.assets\.srcDirs \+= fingerprintAssetsDir\s*\}/,
+      `if (hasVariants) {
+    project.android.libraryVariants.all { variant ->
+      if (!variant.buildType.debuggable) {
+        return
+      }
+      variant.preBuildProvider.configure { it.dependsOn(createFingerprintTask) }
+      project.android.sourceSets.maybeCreate(variant.buildType.name).assets.srcDirs += fingerprintAssetsDir
+    }
+  } else {
+    tasks.matching { it.name.toLowerCase().contains("debug") && it.name.toLowerCase().contains("prebuild") }.configureEach { it.dependsOn(createFingerprintTask) }
+    project.android.sourceSets.maybeCreate("debug").assets.srcDirs += fingerprintAssetsDir
+  }`
+    );
+
+  fs.writeFileSync(constantsGradlePath, patched);
+  console.log('[patch] Patched expo-constants get-app-config-android.gradle for AGP 9+ compatibility.');
+}
+
+function patchExpoModulesCore() {
+  const coreGradlePath = path.join(
+    __dirname,
+    '..',
+    'node_modules',
+    'expo-modules-core',
+    'android',
+    'build.gradle'
+  );
+  if (!fs.existsSync(coreGradlePath)) return;
+  const content = fs.readFileSync(coreGradlePath, 'utf8');
+  if (content.includes("hasProperty('ndkDirectory')")) return;
+
+  const patched = content.replace(
+    'def stripBinary = PrebuiltNativeLibs.findLlvmStrip(android.ndkDirectory)',
+    "def stripBinary = PrebuiltNativeLibs.findLlvmStrip(android.hasProperty('ndkDirectory') ? android.ndkDirectory : (android.hasProperty('ndkPath') ? (android.ndkPath ? file(android.ndkPath) : null) : null))"
+  );
+
+  fs.writeFileSync(coreGradlePath, patched);
+  console.log('[patch] Patched expo-modules-core android/build.gradle for AGP 9+ compatibility.');
+}
+
+function patchKotlinAndroidPlugin(pkgName) {
+  const gradlePath = path.join(
+    __dirname,
+    '..',
+    'node_modules',
+    pkgName,
+    'android',
+    'build.gradle'
+  );
+  if (!fs.existsSync(gradlePath)) return;
+  let content = fs.readFileSync(gradlePath, 'utf8');
+  if (content.includes('!project.extensions.findByName("kotlin")')) return;
+
+  const regex = /^\s*apply\s+plugin:\s*['"]kotlin-android['"]\s*$/m;
+  if (regex.test(content)) {
+    const replacement = `if (!project.plugins.hasPlugin("kotlin-android") && !project.extensions.findByName("kotlin")) {\n    apply plugin: 'kotlin-android'\n}`;
+    content = content.replace(regex, replacement);
+    fs.writeFileSync(gradlePath, content);
+    console.log(`[patch] Patched kotlin-android plugin guard in ${pkgName}.`);
+  }
+}
+
 try {
   patchTopicSubscription(topicBuildPath, false);
   patchTopicSubscription(topicSrcPath, true);
@@ -161,6 +299,20 @@ try {
     path.join(expoNotificationsDir, 'src', 'setNotificationChannelAsync.android.ts'),
     true
   );
+  patchExpoConstants();
+  patchExpoModulesCore();
+
+  const kotlinPluginPkgs = [
+    'react-native-maps',
+    'react-native-webview',
+    'react-native-screens',
+    'react-native-gesture-handler',
+    'react-native-safe-area-context',
+  ];
+  for (const pkg of kotlinPluginPkgs) {
+    patchKotlinAndroidPlugin(pkg);
+  }
 } catch (err) {
-  console.warn('[patch] Failed to patch expo-notifications:', err.message);
+  console.warn('[patch] Failed to patch dependencies:', err.message);
 }
+
