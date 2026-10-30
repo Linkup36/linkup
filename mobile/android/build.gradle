@@ -29,9 +29,23 @@ subprojects { subproject ->
           subproject.android.compileSdk = 37
         }
       } catch (Exception ignored) {}
+
+      if (subproject.name == 'expo-dev-launcher' || subproject.name == 'expo-dev-menu') {
+        try {
+          def releaseSourceSet = subproject.android.sourceSets.findByName('release')
+          if (releaseSourceSet != null) {
+            def disableDir = subproject.file('src/disableInRelease/java')
+            if (disableDir.exists()) {
+              releaseSourceSet.java.srcDir(disableDir)
+              try { releaseSourceSet.kotlin.srcDir(disableDir) } catch (Exception ignored) {}
+            }
+          }
+        } catch (Exception ignored) {}
+      }
     }
   }
 }
+
 
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"

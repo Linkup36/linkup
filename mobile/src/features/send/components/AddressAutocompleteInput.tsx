@@ -67,7 +67,7 @@ export function AddressAutocompleteInput({
   const [isDetectingGps, setIsDetectingGps] = useState(false);
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
 
-  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<TextInput>(null);
   const { addresses: savedAddresses } = useSavedAddresses();
 

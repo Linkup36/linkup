@@ -34,6 +34,7 @@ const TAB_CONFIG: Record<string, { label: string; icon: React.ElementType }> = {
 
 function CurvyFloatingBottomTabBar({
   state,
+  descriptors,
   navigation,
   cartCount,
 }: BottomTabBarProps & { cartCount: number }) {
@@ -84,6 +85,19 @@ function CurvyFloatingBottomTabBar({
       navigation.navigate(route.name);
     }
   };
+
+  // Hide the floating bottom navigator on the cart page so the checkout button is never blocked
+  const currentRoute = state.routes[state.index];
+  const descriptor = descriptors?.[currentRoute?.key];
+  const tabBarStyle = descriptor?.options?.tabBarStyle as any;
+
+  if (
+    currentRoute?.name === 'CartTab' ||
+    currentRoute?.name === 'SendTab' ||
+    tabBarStyle?.display === 'none'
+  ) {
+    return null;
+  }
 
   return (
     <View style={styles.bottomTabBarWrapper}>
@@ -174,8 +188,20 @@ export function BottomTabNavigator() {
     >
       <Tab.Screen name="HomeTab" component={HomeScreen} />
       <Tab.Screen name="SearchTab" component={SearchScreen} />
-      <Tab.Screen name="SendTab" component={SendPackageScreen} />
-      <Tab.Screen name="CartTab" component={CartScreen} />
+      <Tab.Screen
+        name="SendTab"
+        component={SendPackageScreen}
+        options={{
+          tabBarStyle: { display: 'none' },
+        }}
+      />
+      <Tab.Screen
+        name="CartTab"
+        component={CartScreen}
+        options={{
+          tabBarStyle: { display: 'none' },
+        }}
+      />
       <Tab.Screen name="ProfileTab" component={MenuScreen} />
     </Tab.Navigator>
   );

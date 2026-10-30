@@ -28,6 +28,7 @@ import { useGeolocation } from '../../logistics/hooks/useGeolocation';
 import { colors } from '../../../theme/colors';
 import { haversineDistance, formatDistance, calculateDeliveryEta } from '../../../utils/haversine';
 import { POPULAR_NIGERIAN_LOCATIONS } from '../../send/data/nigerianLocations';
+import { productCache } from '../../../services/productCache';
 import * as Haptics from 'expo-haptics';
 import {
   ArrowLeft,
@@ -95,17 +96,21 @@ export function ProductDetailScreen() {
   const { position: userLocation } = useGeolocation();
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState<boolean>(false);
 
-  // Product & Seller Data
-  const [product, setProduct] = useState<any>(null);
-  const [seller, setSeller] = useState<any>(null);
+  const initialProduct = (route.params as any)?.initialProduct;
+
+  // Product & Seller Data (seeded with initialProduct/cache for 0ms instant display)
+  const [product, setProduct] = useState<any>(initialProduct || null);
+  const [seller, setSeller] = useState<any>(initialProduct?.seller || null);
   const [reviews, setReviews] = useState<ProductReview[]>([]);
   const [markupRate, setMarkupRate] = useState<number>(0.10); // default 10%
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(!initialProduct);
   const [isWishlisted, setIsWishlisted] = useState<boolean>(false);
 
   // Gallery & Options
   const [currentImageIndex, setCurrentImageIndex] = useState<number>(0);
-  const [selectedSize, setSelectedSize] = useState<string | null>(null);
+  const [selectedSize, setSelectedSize] = useState<string | null>(
+    initialProduct?.sizes && initialProduct.sizes.length > 0 ? initialProduct.sizes[0] : null
+  );
   const galleryScrollRef = useRef<any>(null);
 
   // Review Modal State
@@ -120,14 +125,28 @@ export function ProductDetailScreen() {
   const [reportDetails, setReportDetails] = useState<string>('');
   const [submittingReport, setSubmittingReport] = useState<boolean>(false);
 
-  // Load Product, Fee Config, Seller, Reviews & Wishlist status
+  // Fast-hydrate from AsyncStorage detail cache if initialProduct was not passed in route
+  useEffect(() => {
+    if (!initialProduct && id) {
+      productCache.getDetail(id).then((cached) => {
+        if (cached?.product) {
+          setProduct((prev: any) => prev || cached.product);
+          setLoading(false);
+          if (cached.product.seller) {
+            setSeller((prev: any) => prev || cached.product.seller);
+          }
+        }
+      });
+    }
+  }, [id, initialProduct]);
+
+  // Load Product, Fee Config, Seller, Reviews & Wishlist status in background
   useEffect(() => {
     async function loadData() {
       try {
-        setLoading(true);
-        setProduct(null);
-        setSeller(null);
-        setReviews([]);
+        if (!product && !initialProduct) {
+          setLoading(true);
+        }
 
         if (!id) {
           console.warn('[ProductDetailScreen] No id provided in route.params');
@@ -166,12 +185,14 @@ export function ProductDetailScreen() {
             ? Math.round(pData.original_price * multiplier)
             : null;
 
-          setProduct({
+          const updatedProduct = {
             ...pData,
             rawPrice: pData.price,
             price: calculatedPrice,
             original_price: calculatedOriginal,
-          });
+          };
+          setProduct(updatedProduct);
+          productCache.setDetail(id, updatedProduct);
 
           if (pData.sizes && pData.sizes.length > 0) {
             setSelectedSize(pData.sizes[0]);
@@ -199,7 +220,7 @@ export function ProductDetailScreen() {
             rating,
             review_text,
             created_at,
-            profiles:user_id(full_name, display_name, avatar_url)
+            profiles:user_id(display_name, avatar_url)
           `)
           .eq('product_id', id)
           .order('created_at', { ascending: false });
@@ -370,7 +391,7 @@ export function ProductDetailScreen() {
           rating,
           review_text,
           created_at,
-          profiles:user_id(full_name, display_name, avatar_url)
+          profiles:user_id(display_name, avatar_url)
         `)
         .eq('product_id', id)
         .order('created_at', { ascending: false });

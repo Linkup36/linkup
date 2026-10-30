@@ -60,7 +60,6 @@ export function QuickEditProfileModal({
 
     try {
       const updates = {
-        full_name: fullName.trim(),
         display_name: fullName.trim(),
         phone: phone.trim() || null,
         address: address.trim() || null,

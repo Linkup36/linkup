@@ -103,7 +103,13 @@ export function WishlistScreen() {
               product={item}
               userLocation={userLocation}
               isLiked={true}
-              onPress={() => navigation.navigate('ProductDetail', { id: item.id, title: item.title })}
+              onPress={() =>
+                navigation.navigate('ProductDetail', {
+                  id: item.id,
+                  title: item.title,
+                  initialProduct: item,
+                })
+              }
               onAddToCart={() =>
                 addToCart({
                   id: item.id,

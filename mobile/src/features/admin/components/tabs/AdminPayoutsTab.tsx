@@ -91,8 +91,8 @@ export function AdminPayoutsTab() {
         .from('payout_requests')
         .update({
           status: newStatus,
-          admin_notes: adminNotes.trim() || undefined,
-          processed_at: new Date().toISOString(),
+          admin_notes: adminNotes.trim() || null,
+          updated_at: new Date().toISOString(),
         })
         .eq('id', selectedRequest.id);
 

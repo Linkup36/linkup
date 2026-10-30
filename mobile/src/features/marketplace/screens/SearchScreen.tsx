@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -162,11 +162,16 @@ export function SearchScreen() {
     }
   };
 
-  const handleLoadMore = () => {
-    if (loadingMore || !hasMore) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    executeSearch(page + 1, true);
-  };
+  const isFetchingMoreRef = useRef(false);
+
+  const handleEndReached = useCallback(() => {
+    if (loading || loadingMore || !hasMore || isFetchingMoreRef.current) return;
+    isFetchingMoreRef.current = true;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    executeSearch(page + 1, true).finally(() => {
+      isFetchingMoreRef.current = false;
+    });
+  }, [loading, loadingMore, hasMore, page]);
 
   useEffect(() => {
     executeSearch(0, false);
@@ -265,37 +270,32 @@ export function SearchScreen() {
               product={item}
               userLocation={userLocation}
               onPress={() =>
-                navigation.navigate('ProductDetail', { id: item.id, title: item.title })
+                navigation.navigate('ProductDetail', {
+                  id: item.id,
+                  title: item.title,
+                  initialProduct: item,
+                })
               }
               onAddToCart={() => addToCart(item.id, 1)}
             />
           )}
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.5}
           ListFooterComponent={
             results.length > 0 ? (
               <View style={styles.paginationFooter}>
-                {hasMore ? (
-                  <TouchableOpacity
-                    style={styles.loadMoreBtn}
-                    onPress={handleLoadMore}
-                    disabled={loadingMore}
-                    activeOpacity={0.8}
-                  >
-                    {loadingMore ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    ) : (
-                      <>
-                        <Text style={styles.loadMoreBtnText}>Load More Products</Text>
-                        <ChevronDown size={16} color="#ffffff" />
-                      </>
-                    )}
-                  </TouchableOpacity>
-                ) : (
+                {loadingMore ? (
+                  <View style={styles.autoLoadingMoreWrap}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={styles.autoLoadingMoreText}>Loading more products...</Text>
+                  </View>
+                ) : !hasMore ? (
                   <View style={styles.endOfResults}>
                     <View style={styles.endLine} />
                     <Text style={styles.endText}>Showing all {results.length} products</Text>
                     <View style={styles.endLine} />
                   </View>
-                )}
+                ) : null}
               </View>
             ) : null
           }
@@ -588,6 +588,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
+  },
+  autoLoadingMoreWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 8,
+  },
+  autoLoadingMoreText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748b',
   },
   loadMoreBtn: {
     flexDirection: 'row',

@@ -7,7 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./assets/logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#FDFEFE"
     },
@@ -70,7 +70,11 @@
           "icon": "./assets/icon.png",
           "color": "#EB7D30"
         }
-      ]
+      ],
+      "expo-image",
+      "expo-secure-store",
+      "expo-splash-screen",
+      "expo-status-bar"
     ],
     "extra": {
       "eas": {

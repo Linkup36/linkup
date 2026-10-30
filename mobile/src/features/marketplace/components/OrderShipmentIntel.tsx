@@ -32,7 +32,7 @@ export function OrderShipmentIntel({ shipment }: OrderShipmentIntelProps) {
       if (!shipment?.rider_id) return null;
       const { data } = await supabase
         .from('profiles')
-        .select('display_name, full_name, avatar_url, phone')
+        .select('display_name, avatar_url, phone')
         .eq('id', shipment.rider_id)
         .maybeSingle();
       return data;
@@ -129,7 +129,7 @@ export function OrderShipmentIntel({ shipment }: OrderShipmentIntelProps) {
   };
 
   const riderName =
-    riderProfile?.display_name || riderProfile?.full_name || 'Assigned Courier';
+    riderProfile?.display_name || 'Assigned Courier';
 
   return (
     <View style={styles.container}>

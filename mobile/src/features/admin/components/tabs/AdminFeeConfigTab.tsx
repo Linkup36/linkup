@@ -81,7 +81,14 @@ export function AdminFeeConfigTab() {
 
   const handleSaveFeeEdit = async () => {
     if (!editingFee) return;
-    const rateVal = parseFloat(editRate) || 0;
+    const isPercentage =
+      editingFee.fee_type === 'send_rider_payout_rate' ||
+      (editingFee.fee_type?.includes('rate') && !editingFee.fee_type?.includes('per_km'));
+
+    let rateVal = parseFloat(editRate) || 0;
+    if (isPercentage && rateVal > 1) {
+      rateVal = rateVal / 100;
+    }
     const flatVal = parseFloat(editFlatFee) || 0;
 
     setSaving(true);
@@ -233,7 +240,14 @@ export function AdminFeeConfigTab() {
                   onPress={() => {
                     Haptics.selectionAsync();
                     setEditingFee(fee);
-                    setEditRate((fee.rate || 0).toString());
+                    const isPercentage =
+                      fee.fee_type === 'send_rider_payout_rate' ||
+                      (fee.fee_type?.includes('rate') && !fee.fee_type?.includes('per_km'));
+                    setEditRate(
+                      isPercentage
+                        ? Math.round((fee.rate || 0) * 100).toString()
+                        : (fee.rate || 0).toString()
+                    );
                     setEditFlatFee((fee.flat_fee || 0).toString());
                   }}
                   activeOpacity={0.7}
@@ -260,39 +274,102 @@ export function AdminFeeConfigTab() {
         onClose={() => setEditingFee(null)}
         title="Edit Fee Configuration"
       >
-        {editingFee && (
-          <View style={styles.modalContent}>
-            <Text style={styles.modalFeeName}>{editingFee.name}</Text>
-            <Text style={styles.modalFeeType}>{editingFee.fee_type}</Text>
+        {editingFee && (() => {
+          const isRiderRate = editingFee.fee_type === 'send_rider_payout_rate';
+          const isRiderMin = editingFee.fee_type === 'send_rider_min_payout';
+          const isPercentage =
+            isRiderRate ||
+            (editingFee.fee_type?.includes('rate') && !editingFee.fee_type?.includes('per_km'));
 
-            <Text style={styles.inputLabel}>Flat Fee (₦)</Text>
-            <TextInput
-              placeholder="e.g. 500"
-              placeholderTextColor="#94A3B8"
-              keyboardType="numeric"
-              style={styles.textInput}
-              value={editFlatFee}
-              onChangeText={setEditFlatFee}
-            />
+          const parsedRatePct = parseFloat(editRate) || 0;
+          const normalizedRate = parsedRatePct > 1 ? parsedRatePct / 100 : parsedRatePct;
+          const sampleDeliveryFee = 750;
+          const sampleRiderCut = Math.round(sampleDeliveryFee * (normalizedRate || 0.8));
+          const samplePlatformCut = Math.max(0, sampleDeliveryFee - sampleRiderCut);
 
-            <Text style={[styles.inputLabel, { marginTop: 12 }]}>Rate Multiplier (0.05 = 5%)</Text>
-            <TextInput
-              placeholder="e.g. 0.05"
-              placeholderTextColor="#94A3B8"
-              keyboardType="numeric"
-              style={styles.textInput}
-              value={editRate}
-              onChangeText={setEditRate}
-            />
+          return (
+            <View style={styles.modalContent}>
+              <Text style={styles.modalFeeName}>{editingFee.name}</Text>
+              <Text style={styles.modalFeeType}>{editingFee.fee_type}</Text>
 
-            <Button
-              title="Save Fee Settings"
-              onPress={handleSaveFeeEdit}
-              loading={saving}
-              style={{ marginTop: 20 }}
-            />
-          </View>
-        )}
+              {isRiderRate ? (
+                <>
+                  <Text style={styles.inputLabel}>Rider Earnings Share (% of Delivery Fee)</Text>
+                  <Text style={styles.helperText}>
+                    Percentage of total delivery fee paid directly into rider's wallet upon delivery.
+                  </Text>
+                  <TextInput
+                    placeholder="e.g. 80"
+                    placeholderTextColor="#94A3B8"
+                    keyboardType="numeric"
+                    style={styles.textInput}
+                    value={editRate}
+                    onChangeText={setEditRate}
+                  />
+
+                  {/* Live Simulation Box */}
+                  <View style={styles.previewBox}>
+                    <Text style={styles.previewTitle}>Live Commission Preview (₦750 Delivery)</Text>
+                    <View style={styles.previewRow}>
+                      <Text style={styles.previewLabel}>Rider Take-Home:</Text>
+                      <Text style={styles.previewRiderVal}>₦{sampleRiderCut.toLocaleString()}</Text>
+                    </View>
+                    <View style={styles.previewRow}>
+                      <Text style={styles.previewLabel}>LinkUp Retained Cut:</Text>
+                      <Text style={styles.previewPlatformVal}>₦{samplePlatformCut.toLocaleString()}</Text>
+                    </View>
+                  </View>
+                </>
+              ) : isRiderMin ? (
+                <>
+                  <Text style={styles.inputLabel}>Minimum Guaranteed Floor (₦)</Text>
+                  <Text style={styles.helperText}>
+                    Optional floor per trip. Set to ₦0 for pure commission (recommended to avoid platform loss on small trips).
+                  </Text>
+                  <TextInput
+                    placeholder="0"
+                    placeholderTextColor="#94A3B8"
+                    keyboardType="numeric"
+                    style={styles.textInput}
+                    value={editFlatFee}
+                    onChangeText={setEditFlatFee}
+                  />
+                </>
+              ) : (
+                <>
+                  <Text style={styles.inputLabel}>Flat Fee (₦)</Text>
+                  <TextInput
+                    placeholder="e.g. 500"
+                    placeholderTextColor="#94A3B8"
+                    keyboardType="numeric"
+                    style={styles.textInput}
+                    value={editFlatFee}
+                    onChangeText={setEditFlatFee}
+                  />
+
+                  <Text style={[styles.inputLabel, { marginTop: 12 }]}>
+                    {isPercentage ? 'Rate Percentage (%)' : 'Rate Multiplier'}
+                  </Text>
+                  <TextInput
+                    placeholder={isPercentage ? 'e.g. 10' : 'e.g. 0.05'}
+                    placeholderTextColor="#94A3B8"
+                    keyboardType="numeric"
+                    style={styles.textInput}
+                    value={editRate}
+                    onChangeText={setEditRate}
+                  />
+                </>
+              )}
+
+              <Button
+                title="Save Fee Settings"
+                onPress={handleSaveFeeEdit}
+                loading={saving}
+                style={{ marginTop: 20 }}
+              />
+            </View>
+          );
+        })()}
       </AppModal>
     </View>
   );
@@ -469,5 +546,47 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     fontWeight: '600',
     backgroundColor: '#F8FAFC',
+  },
+  helperText: {
+    fontSize: 12,
+    color: '#64748B',
+    marginBottom: 10,
+    lineHeight: 16,
+  },
+  previewBox: {
+    marginTop: 16,
+    padding: 14,
+    backgroundColor: '#F0FDF4',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  previewTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#166534',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  previewRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  previewLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#14532D',
+  },
+  previewRiderVal: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#15803D',
+  },
+  previewPlatformVal: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#0369A1',
   },
 });

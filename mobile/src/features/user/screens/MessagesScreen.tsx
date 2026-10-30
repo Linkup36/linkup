@@ -64,7 +64,7 @@ export function MessagesScreen() {
             const otherUserId = c.buyer_id === user.id ? c.seller_id : c.buyer_id;
             const { data: profile } = await supabase
               .from('profiles')
-              .select('id, full_name, avatar_url')
+              .select('id, display_name, avatar_url')
               .eq('id', otherUserId)
               .maybeSingle();
 
@@ -73,7 +73,9 @@ export function MessagesScreen() {
               last_message: c.last_message || 'Started a new trade discussion',
               last_message_at: c.last_message_at,
               product: c.product,
-              other_user: profile || { id: otherUserId, full_name: 'Linkup User' },
+              other_user: profile
+                ? { id: profile.id, full_name: (profile as any).display_name || 'Linkup User', avatar_url: profile.avatar_url }
+                : { id: otherUserId, full_name: 'Linkup User' },
             };
           })
         );

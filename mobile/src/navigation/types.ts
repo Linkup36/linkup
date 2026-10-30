@@ -20,7 +20,7 @@ export type MainTabParamList = {
 export type RootStackParamList = {
   MainTabs: NavigatorScreenParams<MainTabParamList>;
   AuthModal: NavigatorScreenParams<AuthStackParamList>;
-  ProductDetail: { id: string; title?: string };
+  ProductDetail: { id: string; title?: string; initialProduct?: any };
   Checkout: { directBuy?: boolean; productId?: string; quantity?: number };
   SendTracking: { orderId: string };
   SendHistory: undefined;

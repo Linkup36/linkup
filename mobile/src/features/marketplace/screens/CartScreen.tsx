@@ -26,6 +26,7 @@ import {
   Sparkles,
   Tag,
   Check,
+  ArrowLeft,
 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -111,14 +112,35 @@ export function CartScreen() {
   const finalTotal = Math.max(0, subtotal - discountAmount);
 
   return (
-    <SafeAreaView edges={['top', 'left', 'right', 'bottom']}>
+    <SafeAreaView
+      backgroundColor="#ffffff"
+      contentBackgroundColor="#ffffff"
+      statusBarStyle="dark-content"
+      edges={['top', 'left', 'right', 'bottom']}
+    >
       {/* Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>My Cart</Text>
-          <Text style={styles.itemCount}>
-            {totalCount} {totalCount === 1 ? 'item' : 'items'}
-          </Text>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => {
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+              } else {
+                navigation.navigate('MainTabs', { screen: 'HomeTab' });
+              }
+            }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            activeOpacity={0.7}
+          >
+            <ArrowLeft size={20} color="#0f172a" strokeWidth={2.2} />
+          </TouchableOpacity>
+          <View>
+            <Text style={styles.title}>My Cart</Text>
+            <Text style={styles.itemCount}>
+              {totalCount} {totalCount === 1 ? 'item' : 'items'}
+            </Text>
+          </View>
         </View>
         {items.length > 0 && (
           <TouchableOpacity onPress={handleClearCart} style={styles.clearBtn}>
@@ -311,6 +333,22 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
+    backgroundColor: '#ffffff',
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  backBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
     fontSize: 22,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -30,6 +30,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { ShipmentCardV2 } from './ShipmentCardV2';
 import { MissionDetailsModalV2 } from './MissionDetailsModalV2';
 import { calculateRiderEarnings } from '../utils/logistics-utils';
+import { logisticsCache } from '../../../services/logisticsCache';
 
 interface ShipmentFeedV2Props {
   defaultFilter?: 'all' | 'pending' | 'active' | 'delivered';
@@ -61,27 +62,38 @@ export function ShipmentFeedV2({
   const fetchShipments = useCallback(async () => {
     if (!user) return;
     try {
-      // Fee config
+      // Fee config from metadata cache or DB
       let riderPayoutRate = 0.80;
-      let riderMinPayout = 1000;
-      try {
-        const { data: feeConfigs } = await (supabase as any)
-          .from('fee_config')
-          .select('fee_type, rate, flat_fee')
-          .in('fee_type', ['send_rider_payout_rate', 'send_rider_min_payout'])
-          .eq('is_active', true);
+      let riderMinPayout = 0;
+      const cachedMeta = await logisticsCache.getMetadata();
+      if (cachedMeta?.data?.feeConfigs) {
+        riderPayoutRate = cachedMeta.data.feeConfigs.riderPayoutRate || 0.80;
+        riderMinPayout = cachedMeta.data.feeConfigs.riderMinPayout ?? 0;
+      } else {
+        try {
+          const { data: feeConfigs } = await (supabase as any)
+            .from('fee_config')
+            .select('fee_type, rate, flat_fee')
+            .in('fee_type', ['send_rider_payout_rate', 'send_rider_min_payout'])
+            .eq('is_active', true);
 
-        if (feeConfigs) {
-          for (const fc of feeConfigs) {
-            if (fc.fee_type === 'send_rider_payout_rate' && Number(fc.rate) > 0) {
-              riderPayoutRate = Number(fc.rate);
-            } else if (fc.fee_type === 'send_rider_min_payout' && Number(fc.flat_fee) > 0) {
-              riderMinPayout = Number(fc.flat_fee);
+          if (feeConfigs) {
+            for (const fc of feeConfigs) {
+              if (fc.fee_type === 'send_rider_payout_rate' && Number(fc.rate) > 0) {
+                riderPayoutRate = Number(fc.rate);
+              } else if (fc.fee_type === 'send_rider_min_payout') {
+                riderMinPayout = Number(fc.flat_fee || 0);
+              }
             }
+            logisticsCache.setMetadata({
+              cities: cachedMeta?.data?.cities || [],
+              zones: cachedMeta?.data?.zones || [],
+              feeConfigs: { riderPayoutRate, riderMinPayout },
+            });
           }
+        } catch (err) {
+          console.warn('[ShipmentFeedV2] fee_config error:', err);
         }
-      } catch (err) {
-        console.warn('[ShipmentFeedV2] fee_config error:', err);
       }
 
       // 1. Fetch wallet total
@@ -269,6 +281,13 @@ export function ShipmentFeedV2({
           new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
       );
       setShipments(combined);
+
+      // Save to feed cache
+      logisticsCache.setFeed(user.id, {
+        myAssignedShipments: myData || [],
+        broadcastMarketplace: broadcastData || [],
+        broadcastSendOrders: mySendAssignments || [],
+      });
     } catch (err) {
       console.error('[ShipmentFeedV2] fetch error:', err);
     } finally {
@@ -277,30 +296,68 @@ export function ShipmentFeedV2({
     }
   }, [user]);
 
-  useEffect(() => {
-    fetchShipments();
+  // Debounced fetch for rapid realtime Postgres updates
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedFetchShipments = useCallback(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      fetchShipments();
+    }, 500);
   }, [fetchShipments]);
 
-  // Real-time listener
   useEffect(() => {
     if (!user?.id) return;
+    let isMounted = true;
+
+    // SWR Cache Fast-Path: restore cached feed in 0ms!
+    logisticsCache.getFeed(user.id).then((cached) => {
+      if (!isMounted || !cached?.data) {
+        fetchShipments();
+        return;
+      }
+
+      const { data, isStale } = cached;
+      const combined = [
+        ...(data.myAssignedShipments || []),
+        ...(data.broadcastSendOrders || []),
+        ...(data.broadcastMarketplace || []),
+      ];
+      combined.sort(
+        (a: any, b: any) =>
+          new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+      );
+      setShipments(combined);
+      setLoading(false);
+
+      if (isStale) {
+        fetchShipments();
+      }
+    });
+
+    // Real-time listener with debouncing
     const channel = supabase
       .channel(`rider-feed-rt-${user.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'shipments' }, () => {
-        fetchShipments();
+        debouncedFetchShipments();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'send_orders' }, () => {
-        fetchShipments();
+        debouncedFetchShipments();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
-        fetchShipments();
+        debouncedFetchShipments();
       })
       .subscribe();
 
     return () => {
+      isMounted = false;
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
       supabase.removeChannel(channel);
     };
-  }, [user?.id, fetchShipments]);
+  }, [user?.id, fetchShipments, debouncedFetchShipments]);
 
   const onRefresh = () => {
     setRefreshing(true);

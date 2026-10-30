@@ -50,6 +50,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../../navigation/types';
 import * as Haptics from 'expo-haptics';
+import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -147,6 +148,113 @@ export function SendPackageScreen() {
   const { addresses: savedAddresses, saveAddress } = useSavedAddresses();
   const scrollRef = useRef<any>(null);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [isDetectingPickupGps, setIsDetectingPickupGps] = useState(false);
+
+  // Exact GPS detection for Pickup Address
+  const handleDetectPickupLocation = async () => {
+    setIsDetectingPickupGps(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        toast.error('Location permission was denied. Please allow location access in your device settings.');
+        return;
+      }
+
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = loc.coords;
+
+      const res = await Location.reverseGeocodeAsync({ latitude, longitude });
+      let formatted = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+      if (res && res.length > 0) {
+        const item = res[0];
+        const parts = [
+          item.streetNumber,
+          item.street,
+          item.district || item.subregion,
+          item.city,
+          item.region,
+        ].filter(Boolean);
+        if (parts.length > 0) formatted = parts.join(', ');
+      }
+
+      updateFormData({
+        pickupAddress: formatted,
+        pickupLat: latitude,
+        pickupLng: longitude,
+      });
+
+      if (errors.pickupAddress) {
+        setErrors((prev) => {
+          const next = { ...prev };
+          delete next.pickupAddress;
+          return next;
+        });
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      toast.success('Exact pickup location detected!');
+    } catch (err: any) {
+      console.warn('[LocationDetect] Error:', err);
+      toast.error('Could not detect exact location. Please type your address manually.');
+    } finally {
+      setIsDetectingPickupGps(false);
+    }
+  };
+
+  const [isDetectingDropoffGps, setIsDetectingDropoffGps] = useState(false);
+
+  // Exact GPS detection for Dropoff Address
+  const handleDetectDropoffLocation = async () => {
+    setIsDetectingDropoffGps(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        toast.error('Location permission was denied. Please allow location access in your device settings.');
+        return;
+      }
+
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = loc.coords;
+
+      const res = await Location.reverseGeocodeAsync({ latitude, longitude });
+      let formatted = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+      if (res && res.length > 0) {
+        const item = res[0];
+        const parts = [
+          item.streetNumber,
+          item.street,
+          item.district || item.subregion,
+          item.city,
+          item.region,
+        ].filter(Boolean);
+        if (parts.length > 0) formatted = parts.join(', ');
+      }
+
+      updateFormData({
+        dropoffAddress: formatted,
+        dropoffLat: latitude,
+        dropoffLng: longitude,
+      });
+
+      if (errors.dropoffAddress) {
+        setErrors((prev) => {
+          const next = { ...prev };
+          delete next.dropoffAddress;
+          return next;
+        });
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      toast.success('Exact drop-off location detected!');
+    } catch (err: any) {
+      console.warn('[LocationDetect] Error:', err);
+      toast.error('Could not detect exact location. Please type your destination address manually.');
+    } finally {
+      setIsDetectingDropoffGps(false);
+    }
+  };
 
   // Layout offset tracking for auto-scrolling focused fields to top
   const stepSectionY = useRef(110);
@@ -278,7 +386,7 @@ export function SendPackageScreen() {
       return;
     }
     setErrors({});
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
     setStep(2);
   };
 
@@ -295,7 +403,7 @@ export function SendPackageScreen() {
       return;
     }
     setErrors({});
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
     setStep(3);
   };
 
@@ -312,13 +420,13 @@ export function SendPackageScreen() {
       return;
     }
     setErrors({});
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
     setStep(4);
   };
 
   // Step 4 Validation
   const handleStep4Next = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
     setStep(5);
   };
 
@@ -336,7 +444,7 @@ export function SendPackageScreen() {
           latitude: formData.pickupLat,
           longitude: formData.pickupLng,
         });
-      } catch {}
+      } catch { }
     }
 
     if (formData.saveDropoffAddress && formData.dropoffAddress.trim()) {
@@ -351,7 +459,7 @@ export function SendPackageScreen() {
           latitude: formData.dropoffLat,
           longitude: formData.dropoffLng,
         });
-      } catch {}
+      } catch { }
     }
   };
 
@@ -390,7 +498,7 @@ export function SendPackageScreen() {
     }
 
     setLoading(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { });
 
     try {
       const orderId = generateSendOrderId();
@@ -447,7 +555,6 @@ export function SendPackageScreen() {
           'pay_send_order_with_wallet',
           {
             p_order_id: orderId,
-            p_amount: finalCalculatedFee,
           }
         );
 
@@ -612,7 +719,7 @@ export function SendPackageScreen() {
             day: 'numeric',
             month: 'short',
           })}`;
-        } catch {}
+        } catch { }
       }
       return 'Delivered';
     }
@@ -623,7 +730,7 @@ export function SendPackageScreen() {
           month: 'short',
           year: 'numeric',
         })}`;
-      } catch {}
+      } catch { }
     }
     return 'Est. Same-Day Delivery';
   }, [activeOrder]);
@@ -728,10 +835,11 @@ export function SendPackageScreen() {
 
   return (
     <SafeView
-      edges={['top', 'left', 'right']}
-      backgroundColor={!isBookingOpen ? '#FA7E2B' : '#FFFFFF'}
-      contentBackgroundColor="#FFFFFF"
-      statusBarStyle="dark-content"
+      edges={['top', 'bottom', 'left', 'right']}
+      backgroundColor="#FA7E2B"
+      contentBackgroundColor="#F8FAFC"
+      statusBarStyle="light-content"
+      statusBarColor="#FA7E2B"
     >
       {/* ============================================================
           MODE 1: MODERN DISPATCH & DELIVERY HUB (MATCHING USER REFERENCE)
@@ -747,6 +855,14 @@ export function SendPackageScreen() {
             {/* Profile Greeting Row */}
             <View style={styles.profileRow}>
               <View style={styles.profileLeft}>
+                <TouchableOpacity
+                  style={styles.backToHomeBtn}
+                  onPress={() => navigation.navigate('MainTabs', { screen: 'HomeTab' })}
+                  activeOpacity={0.8}
+                  accessibilityLabel="Back to Home"
+                >
+                  <ArrowLeft size={18} color="#FFFFFF" strokeWidth={2.5} />
+                </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.avatarCircle}
                   onPress={() => setIsAccountMenuOpen(true)}
@@ -1170,18 +1286,9 @@ export function SendPackageScreen() {
           style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <ScrollView
-            ref={scrollRef}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={[
-              styles.scrollContent,
-              isKeyboardVisible && { paddingBottom: 400 },
-            ]}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode={Platform.OS === 'web' ? 'none' : 'on-drag'}
-          >
-            {/* Flow Header with Back Button */}
-            {step <= 5 && (
+          {/* Sticky Curvy Orange Header Banner */}
+          {step <= 5 && (
+            <View style={styles.bookingCurvyBanner}>
               <View style={styles.flowHeader}>
                 <View style={styles.flowHeaderLeft}>
                   <TouchableOpacity
@@ -1195,7 +1302,7 @@ export function SendPackageScreen() {
                     }}
                     activeOpacity={0.7}
                   >
-                    <ArrowLeft size={22} color="#0f172a" strokeWidth={2.5} />
+                    <ArrowLeft size={20} color="#FFFFFF" strokeWidth={2.5} />
                   </TouchableOpacity>
 
                   <View style={styles.flowTitleWrap}>
@@ -1213,10 +1320,22 @@ export function SendPackageScreen() {
                   <Text style={styles.hubExitBtnText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
-            )}
 
-            {/* 5-Step Stepper Indicator */}
-            {step <= 5 && <SendProgress currentStep={step} />}
+              {/* 5-Step Stepper Indicator */}
+              <SendProgress currentStep={step} />
+            </View>
+          )}
+
+          <ScrollView
+            ref={scrollRef}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[
+              styles.scrollContent,
+              isKeyboardVisible && { paddingBottom: 400 },
+            ]}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === 'web' ? 'none' : 'on-drag'}
+          >
 
             {/* ================= STEP 1: PACKAGE DETAILS ================= */}
             {step === 1 && (
@@ -1257,7 +1376,7 @@ export function SendPackageScreen() {
                           onPress={() => {
                             setSelectedSize(s.label);
                             updateFormData({ weightKg: s.weight });
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
                           }}
                           activeOpacity={0.8}
                         >
@@ -1336,7 +1455,7 @@ export function SendPackageScreen() {
                       style={styles.fragileRow}
                       onPress={() => {
                         updateFormData({ isFragile: !formData.isFragile });
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
                       }}
                       activeOpacity={0.7}
                     >
@@ -1447,6 +1566,7 @@ export function SendPackageScreen() {
                         style={styles.textInput}
                         placeholder="e.g. 08012345678"
                         placeholderTextColor="#94a3b8"
+                        maxLength={11}
                         keyboardType="phone-pad"
                         value={formData.senderPhone}
                         onChangeText={(val) => updateFormData({ senderPhone: val })}
@@ -1461,25 +1581,115 @@ export function SendPackageScreen() {
                         fieldYOffsets.current['pickupAddress'] = e.nativeEvent.layout.y;
                       }}
                     >
-                      <Text style={styles.inputLabel}>
-                        Pickup Address <Text style={{ color: '#ef4444' }}>*</Text>
-                      </Text>
-                      <AddressAutocompleteInput
-                        label="Pickup Address"
-                        placeholder="Search street name, landmark, area in Nigeria..."
-                        value={formData.pickupAddress}
-                        latitude={formData.pickupLat}
-                        longitude={formData.pickupLng}
-                        onChangeAddress={(addr) => updateFormData({ pickupAddress: addr })}
-                        onSelectLocation={(loc) => {
-                          updateFormData({
-                            pickupAddress: loc.address,
-                            pickupLat: loc.latitude,
-                            pickupLng: loc.longitude,
-                          });
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <Text style={styles.inputLabel}>
+                          Pickup Address <Text style={{ color: '#ef4444' }}>*</Text>
+                        </Text>
+                        {formData.pickupLat != null && formData.pickupLng != null && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#dcfce7', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10 }}>
+                            <CheckCircle2 size={11} color="#16a34a" />
+                            <Text style={{ fontSize: 10, fontWeight: '700', color: '#16a34a' }}>GPS Matched</Text>
+                          </View>
+                        )}
+                      </View>
+
+                      {/* Detect Exact Location Action Button */}
+                      <TouchableOpacity
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 8,
+                          backgroundColor: isDetectingPickupGps ? '#fff7ed' : '#f0fdf4',
+                          borderWidth: 1.5,
+                          borderColor: isDetectingPickupGps ? colors.primary : '#86efac',
+                          borderRadius: 12,
+                          paddingVertical: 10,
+                          paddingHorizontal: 14,
+                          marginBottom: 8,
                         }}
-                        mode="pickup"
-                      />
+                        onPress={handleDetectPickupLocation}
+                        disabled={isDetectingPickupGps}
+                        activeOpacity={0.75}
+                      >
+                        {isDetectingPickupGps ? (
+                          <ActivityIndicator size="small" color={colors.primary} />
+                        ) : (
+                          <Navigation size={15} color="#16a34a" />
+                        )}
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: isDetectingPickupGps ? colors.primary : '#15803d' }}>
+                          {isDetectingPickupGps ? 'Detecting Your Exact Location...' : 'Tap to Detect Exact Location (GPS)'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {/* Manual Address Input Box */}
+                      <View
+                        style={[
+                          styles.textInput,
+                          {
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            paddingHorizontal: 12,
+                            paddingVertical: 0,
+                            height: 48,
+                          },
+                          Boolean(errors.pickupAddress) && { borderColor: '#ef4444' },
+                        ]}
+                      >
+                        <MapPin size={17} color="#16a34a" style={{ marginRight: 8 }} />
+                        <TextInput
+                          style={{
+                            flex: 1,
+                            fontSize: 13,
+                            color: '#0f172a',
+                            fontWeight: '600',
+                            height: '100%',
+                            paddingVertical: 0,
+                          }}
+                          placeholder="Type or edit pickup address manually..."
+                          placeholderTextColor="#94a3b8"
+                          value={formData.pickupAddress}
+                          onChangeText={(val) => {
+                            updateFormData({ pickupAddress: val });
+                            if (errors.pickupAddress) {
+                              setErrors((prev) => {
+                                const next = { ...prev };
+                                delete next.pickupAddress;
+                                return next;
+                              });
+                            }
+                          }}
+                          onBlur={async () => {
+                            if (formData.pickupAddress.trim() && !formData.pickupLat) {
+                              try {
+                                const geocoded = await Location.geocodeAsync(formData.pickupAddress);
+                                if (geocoded && geocoded.length > 0) {
+                                  updateFormData({
+                                    pickupLat: geocoded[0].latitude,
+                                    pickupLng: geocoded[0].longitude,
+                                  });
+                                }
+                              } catch {}
+                            }
+                          }}
+                          onFocus={() => handleFieldFocus('pickupAddress')}
+                        />
+                        {Boolean(formData.pickupAddress.length > 0) && (
+                          <TouchableOpacity
+                            onPress={() => {
+                              updateFormData({
+                                pickupAddress: '',
+                                pickupLat: null,
+                                pickupLng: null,
+                              });
+                            }}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                            style={{ padding: 4 }}
+                          >
+                            <Text style={{ fontSize: 14, color: '#94a3b8', fontWeight: 'bold' }}>✕</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
                       {errors.pickupAddress && <Text style={styles.fieldError}>{errors.pickupAddress}</Text>}
                     </View>
 
@@ -1586,6 +1796,7 @@ export function SendPackageScreen() {
                         style={styles.textInput}
                         placeholder="e.g. 08087654321"
                         placeholderTextColor="#94a3b8"
+                        maxLength={11}
                         keyboardType="phone-pad"
                         value={formData.dropoffRecipientPhone}
                         onChangeText={(val) => updateFormData({ dropoffRecipientPhone: val })}
@@ -1602,25 +1813,115 @@ export function SendPackageScreen() {
                         fieldYOffsets.current['dropoffAddress'] = e.nativeEvent.layout.y;
                       }}
                     >
-                      <Text style={styles.inputLabel}>
-                        Destination Address <Text style={{ color: '#ef4444' }}>*</Text>
-                      </Text>
-                      <AddressAutocompleteInput
-                        label="Destination Address"
-                        placeholder="Search drop-off address, area in Nigeria..."
-                        value={formData.dropoffAddress}
-                        latitude={formData.dropoffLat}
-                        longitude={formData.dropoffLng}
-                        onChangeAddress={(addr) => updateFormData({ dropoffAddress: addr })}
-                        onSelectLocation={(loc) => {
-                          updateFormData({
-                            dropoffAddress: loc.address,
-                            dropoffLat: loc.latitude,
-                            dropoffLng: loc.longitude,
-                          });
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <Text style={styles.inputLabel}>
+                          Destination Address <Text style={{ color: '#ef4444' }}>*</Text>
+                        </Text>
+                        {formData.dropoffLat != null && formData.dropoffLng != null && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#dcfce7', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10 }}>
+                            <CheckCircle2 size={11} color="#16a34a" />
+                            <Text style={{ fontSize: 10, fontWeight: '700', color: '#16a34a' }}>GPS Matched</Text>
+                          </View>
+                        )}
+                      </View>
+
+                      {/* Detect Exact Location Action Button */}
+                      <TouchableOpacity
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 8,
+                          backgroundColor: isDetectingDropoffGps ? '#fff7ed' : '#eff6ff',
+                          borderWidth: 1.5,
+                          borderColor: isDetectingDropoffGps ? colors.primary : '#93c5fd',
+                          borderRadius: 12,
+                          paddingVertical: 10,
+                          paddingHorizontal: 14,
+                          marginBottom: 8,
                         }}
-                        mode="dropoff"
-                      />
+                        onPress={handleDetectDropoffLocation}
+                        disabled={isDetectingDropoffGps}
+                        activeOpacity={0.75}
+                      >
+                        {isDetectingDropoffGps ? (
+                          <ActivityIndicator size="small" color={colors.primary} />
+                        ) : (
+                          <Navigation size={15} color="#2563eb" />
+                        )}
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: isDetectingDropoffGps ? colors.primary : '#1d4ed8' }}>
+                          {isDetectingDropoffGps ? 'Detecting Drop-off Location...' : 'Tap to Detect Current Location (GPS)'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {/* Manual Address Input Box */}
+                      <View
+                        style={[
+                          styles.textInput,
+                          {
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            paddingHorizontal: 12,
+                            paddingVertical: 0,
+                            height: 48,
+                          },
+                          Boolean(errors.dropoffAddress) && { borderColor: '#ef4444' },
+                        ]}
+                      >
+                        <MapPin size={17} color={colors.primary} style={{ marginRight: 8 }} />
+                        <TextInput
+                          style={{
+                            flex: 1,
+                            fontSize: 13,
+                            color: '#0f172a',
+                            fontWeight: '600',
+                            height: '100%',
+                            paddingVertical: 0,
+                          }}
+                          placeholder="Type or edit destination address manually..."
+                          placeholderTextColor="#94a3b8"
+                          value={formData.dropoffAddress}
+                          onChangeText={(val) => {
+                            updateFormData({ dropoffAddress: val });
+                            if (errors.dropoffAddress) {
+                              setErrors((prev) => {
+                                const next = { ...prev };
+                                delete next.dropoffAddress;
+                                return next;
+                              });
+                            }
+                          }}
+                          onBlur={async () => {
+                            if (formData.dropoffAddress.trim() && !formData.dropoffLat) {
+                              try {
+                                const geocoded = await Location.geocodeAsync(formData.dropoffAddress);
+                                if (geocoded && geocoded.length > 0) {
+                                  updateFormData({
+                                    dropoffLat: geocoded[0].latitude,
+                                    dropoffLng: geocoded[0].longitude,
+                                  });
+                                }
+                              } catch {}
+                            }
+                          }}
+                          onFocus={() => handleFieldFocus('dropoffAddress')}
+                        />
+                        {Boolean(formData.dropoffAddress.length > 0) && (
+                          <TouchableOpacity
+                            onPress={() => {
+                              updateFormData({
+                                dropoffAddress: '',
+                                dropoffLat: null,
+                                dropoffLng: null,
+                              });
+                            }}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                            style={{ padding: 4 }}
+                          >
+                            <Text style={{ fontSize: 14, color: '#94a3b8', fontWeight: 'bold' }}>✕</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
                       {errors.dropoffAddress && <Text style={styles.fieldError}>{errors.dropoffAddress}</Text>}
                     </View>
 
@@ -1684,7 +1985,7 @@ export function SendPackageScreen() {
                           style={[styles.vehicleOption, isSelected && styles.vehicleOptionActive]}
                           onPress={() => {
                             setSelectedVehicle(v.id);
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
                           }}
                           activeOpacity={0.8}
                         >
@@ -1877,7 +2178,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   hubContentContainer: {
-    paddingBottom: 110,
+    paddingBottom: 40,
   },
 
   // 1. Top Curvy Banner
@@ -1888,6 +2189,14 @@ const styles = StyleSheet.create({
     paddingBottom: 48,
     borderBottomLeftRadius: 38,
     borderBottomRightRadius: 38,
+  },
+  backToHomeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   profileRow: {
     flexDirection: 'row',
@@ -2454,13 +2763,29 @@ const styles = StyleSheet.create({
   // Booking Flow Header
   scrollContent: {
     paddingHorizontal: 16,
+    paddingTop: 14,
     paddingBottom: 60,
+  },
+  bookingCurvyBanner: {
+    backgroundColor: '#FA7E2B',
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 8 : 12,
+    paddingBottom: 20,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    shadowColor: '#FA7E2B',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
+    zIndex: 50,
   },
   flowHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 14,
+    paddingVertical: 10,
+    marginBottom: 6,
   },
   flowHeaderLeft: {
     flexDirection: 'row',
@@ -2469,10 +2794,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f1f5f9',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2482,24 +2807,24 @@ const styles = StyleSheet.create({
   flowTitle: {
     fontSize: 18,
     fontWeight: '900',
-    color: '#0f172a',
+    color: '#FFFFFF',
   },
   flowSubtitle: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#64748b',
+    color: 'rgba(255, 255, 255, 0.88)',
     marginTop: 1,
   },
   hubExitBtn: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 12,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
   },
   hubExitBtnText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#475569',
+    color: '#FFFFFF',
   },
 
   // Step Section

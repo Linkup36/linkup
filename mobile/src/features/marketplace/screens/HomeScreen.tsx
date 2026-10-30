@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import { ProductCard, ProductItem } from '../../../components/ui/ProductCard';
 import { AppModal, ModalVariant } from '../../../components/ui/AppModal';
 import { AccountMenuModal } from '../../user/components/AccountMenuModal';
 import { supabase } from '../../../services/supabase';
+import { productCache } from '../../../services/productCache';
 import { useAuth } from '../../../context/AuthContext';
 import { useCart } from '../../../context/CartContext';
 import { colors } from '../../../theme/colors';
@@ -44,12 +45,6 @@ import {
   Heart,
   Laptop,
   ChevronDown,
-  LayoutDashboard,
-  Store,
-  ArrowRight,
-  Megaphone,
-  Truck,
-  ShieldCheck,
 } from 'lucide-react-native';
 
 const { width } = Dimensions.get('window');
@@ -71,85 +66,8 @@ const PAGE_SIZE = 20;
 export function HomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<any>();
-  const { user, profile, roles, activeRole, setActiveRole } = useAuth();
+  const { user, profile, roles, activeRole } = useAuth();
   const { totalCount, addToCart } = useCart();
-
-  const userRoles = useMemo(() => {
-    const list = [...(roles || [])];
-    if (profile?.role && !list.includes(profile.role)) list.push(profile.role);
-    if (activeRole && !list.includes(activeRole)) list.push(activeRole);
-    return list;
-  }, [roles, profile?.role, activeRole]);
-
-  const isSeller = userRoles.includes('seller');
-  const isPromoter = userRoles.includes('promoter');
-  const isLogistics = userRoles.includes('logistics');
-  const isAdmin = userRoles.includes('admin');
-
-  // Main dashboard determination based on activeRole, then priority: promoter > seller > logistics > admin > buyer
-  const mainDashboard = useMemo(() => {
-    if (!user) return null;
-
-    if (activeRole === 'promoter' || (!activeRole && isPromoter && !isSeller)) {
-      return {
-        screen: 'PromoterDashboard' as keyof RootStackParamList,
-        title: 'Promoter Hub',
-        activeTitle: 'Promoter Mode Active',
-        subtitle: 'Track affiliate links, clicks & payouts',
-        badge: 'PROMOTER',
-        icon: Megaphone,
-        role: 'promoter',
-      };
-    }
-
-    if (activeRole === 'seller' || (!activeRole && isSeller)) {
-      return {
-        screen: 'SellerDashboard' as keyof RootStackParamList,
-        title: 'Seller Dashboard',
-        activeTitle: 'Seller Mode Active',
-        subtitle: 'Manage inventory, orders & payouts',
-        badge: 'SELLER',
-        icon: Store,
-        role: 'seller',
-      };
-    }
-
-    if (activeRole === 'logistics' || (!activeRole && isLogistics)) {
-      return {
-        screen: 'LogisticsDashboard' as keyof RootStackParamList,
-        title: 'Rider Hub',
-        activeTitle: 'Logistics Fleet Active',
-        subtitle: 'View delivery missions & dispatch feed',
-        badge: 'RIDER',
-        icon: Truck,
-        role: 'logistics',
-      };
-    }
-
-    if (activeRole === 'admin' || (!activeRole && isAdmin)) {
-      return {
-        screen: 'AdminDashboard' as keyof RootStackParamList,
-        title: 'Admin Portal',
-        activeTitle: 'Admin Portal Active',
-        subtitle: 'Platform analytics, users & settings',
-        badge: 'ADMIN',
-        icon: ShieldCheck,
-        role: 'admin',
-      };
-    }
-
-    // Default authenticated buyer: buyers do NOT have a dashboard in the mobile version
-    return null;
-  }, [user, activeRole, isPromoter, isSeller, isLogistics, isAdmin]);
-
-  const handleNavigateMainDashboard = useCallback(() => {
-    if (!mainDashboard) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    if (mainDashboard.role) {
-      setActiveRole(mainDashboard.role);
-    }
-    navigation.navigate(mainDashboard.screen as any);
-  }, [mainDashboard, navigation, setActiveRole]);
   const {
     position: userLocation,
     setPosition: setUserLocation,
@@ -184,36 +102,59 @@ export function HomeScreen() {
     }
   }, [route.params?.category]);
 
-  // 1. Fetch Categories & Delivery Zones & Fee Config from real Supabase tables
+  const isFetchingMoreRef = useRef<boolean>(false);
+
+  // 1. Fetch Categories & Delivery Zones & Fee Config (Cache First -> SWR)
   const fetchMetadata = async () => {
     try {
+      // Fast-render from cache first if available
+      const cachedMeta = await productCache.getMetadata();
+      if (cachedMeta) {
+        if (cachedMeta.categories?.length) setCategories(cachedMeta.categories);
+        if (cachedMeta.zones?.length) setZones(cachedMeta.zones);
+        if (cachedMeta.markupRate !== undefined) setMarkupRate(cachedMeta.markupRate);
+      }
+
       const [catsRes, zonesRes, feeRes] = await Promise.all([
         supabase.from('categories').select('id, name, slug').order('name'),
         supabase.from('delivery_zones').select('id, name, is_active').eq('is_active', true).order('name'),
         supabase.from('fee_config').select('*').eq('is_active', true),
       ]);
 
+      let finalCats = cachedMeta?.categories || [];
+      let finalZones = cachedMeta?.zones || [];
+      let finalMarkup = cachedMeta?.markupRate ?? 0.10;
+
       if (catsRes.data) {
         let cats = catsRes.data as CategoryItem[];
-        // Sort food/restaurants to front if present
         const foodIdx = cats.findIndex(c => c.name.toLowerCase().includes('restaurant') || c.name.toLowerCase().includes('food'));
         if (foodIdx > -1) {
           const foodCat = cats.splice(foodIdx, 1)[0];
           cats.unshift(foodCat);
         }
+        finalCats = cats;
         setCategories(cats);
       }
 
       if (zonesRes.data) {
-        setZones(zonesRes.data as ZoneItem[]);
+        finalZones = zonesRes.data as ZoneItem[];
+        setZones(finalZones);
       }
 
       if (feeRes.data) {
         const prodFee = feeRes.data.find((f: any) => f.fee_type === 'platform_product');
         if (prodFee?.rate !== undefined) {
+          finalMarkup = prodFee.rate;
           setMarkupRate(prodFee.rate);
         }
       }
+
+      // Persist to storage
+      await productCache.setMetadata({
+        categories: finalCats,
+        zones: finalZones,
+        markupRate: finalMarkup,
+      });
     } catch (err) {
       console.warn('[HomeScreen] Metadata fetch error:', err);
     }
@@ -238,13 +179,33 @@ export function HomeScreen() {
     }
   };
 
-  // 3. Fetch Real Products from Supabase with joins & filters
-  const fetchProducts = async (pageToFetch = 0, isLoadMore = false) => {
+  // 3. Fetch Products with AsyncStorage Caching & Infinite Scroll
+  const fetchProducts = async (pageToFetch = 0, isLoadMore = false, forceServer = false) => {
     try {
       if (isLoadMore) {
         setLoadingMore(true);
       } else {
-        setLoading(true);
+        // Only show full-screen loader if we don't have any products rendered yet
+        if (products.length === 0) {
+          setLoading(true);
+        }
+      }
+
+      // Check AsyncStorage cache on initial load (page 0) if not searching and not forcing server
+      if (pageToFetch === 0 && !isLoadMore && !searchQuery.trim() && !forceServer) {
+        const cached = await productCache.getFeed(selectedCategory, selectedZone);
+        if (cached && cached.products && cached.products.length > 0) {
+          setProducts(cached.products);
+          setHasMore(cached.hasMore);
+          setPage(cached.page);
+          setLoading(false);
+
+          // If cache is fresh (< 5 minutes), avoid unnecessary server request
+          if (!cached.isStale) {
+            setRefreshing(false);
+            return;
+          }
+        }
       }
 
       const from = pageToFetch * PAGE_SIZE;
@@ -295,15 +256,26 @@ export function HomeScreen() {
           city_name: p.cities?.name || null,
         }));
 
+        const hasMoreData = data.length === PAGE_SIZE;
+
         if (isLoadMore) {
-          setProducts(prev => [...prev, ...mappedProducts]);
+          setProducts(prev => {
+            const nextList = [...prev, ...mappedProducts];
+            if (!searchQuery.trim()) {
+              productCache.setFeed(selectedCategory, selectedZone, nextList, hasMoreData, pageToFetch);
+            }
+            return nextList;
+          });
           setPage(pageToFetch);
         } else {
           setProducts(mappedProducts);
           setPage(0);
+          if (!searchQuery.trim()) {
+            productCache.setFeed(selectedCategory, selectedZone, mappedProducts, hasMoreData, 0);
+          }
         }
 
-        setHasMore(data.length === PAGE_SIZE);
+        setHasMore(hasMoreData);
       }
     } catch (err) {
       console.error('[HomeScreen] Fetch products error:', err);
@@ -311,14 +283,17 @@ export function HomeScreen() {
       setLoading(false);
       setLoadingMore(false);
       setRefreshing(false);
+      isFetchingMoreRef.current = false;
     }
   };
 
-  const handleLoadMore = () => {
-    if (loadingMore || !hasMore) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  // Automatic Infinite Scroll: automatically load more when scrolled near bottom
+  const handleEndReached = useCallback(() => {
+    if (loading || loadingMore || !hasMore || isFetchingMoreRef.current) return;
+    isFetchingMoreRef.current = true;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     fetchProducts(page + 1, true);
-  };
+  }, [loading, loadingMore, hasMore, page]);
 
   useEffect(() => {
     fetchMetadata();
@@ -337,7 +312,7 @@ export function HomeScreen() {
     setRefreshing(true);
     fetchMetadata();
     fetchUserLikes();
-    fetchProducts(0, false);
+    fetchProducts(0, false, true); // Force network refresh
   };
 
   // Toggle Wishlist Like
@@ -605,7 +580,7 @@ export function HomeScreen() {
                   </Text>
                   <View style={styles.premiumTagRow}>
                     <View style={styles.premiumDot} />
-                    <Text style={styles.premiumText}>{mainDashboard?.badge || (activeRole ? activeRole.toUpperCase() : 'BUYER')}</Text>
+                    <Text style={styles.premiumText}>{activeRole ? activeRole.toUpperCase() : 'BUYER'}</Text>
                   </View>
                 </View>
               </TouchableOpacity>
@@ -621,46 +596,6 @@ export function HomeScreen() {
           )}
         </View>
       </View>
-
-      {/* Active Dashboard Quick Return Bar for Authenticated Users */}
-      {Boolean(user && mainDashboard) && (
-        <View style={styles.sellerReturnBarWrap}>
-          <TouchableOpacity
-            style={styles.sellerReturnBar}
-            onPress={handleNavigateMainDashboard}
-            activeOpacity={0.85}
-            accessibilityRole="button"
-            accessibilityLabel={`Navigate to ${mainDashboard.title}`}
-          >
-            <View style={styles.sellerReturnLeft}>
-              <View style={styles.sellerReturnIconBadge}>
-                {React.createElement(mainDashboard.icon, {
-                  size: 15,
-                  color: '#ffffff',
-                  strokeWidth: 2.5,
-                })}
-              </View>
-              <View style={styles.sellerReturnTextCol}>
-                <Text style={styles.sellerReturnTitle} numberOfLines={1}>
-                  {mainDashboard.activeTitle}
-                </Text>
-                <Text style={styles.sellerReturnSub} numberOfLines={1}>
-                  {mainDashboard.subtitle}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.sellerReturnCtaPill}>
-              {React.createElement(mainDashboard.icon, {
-                size: 12,
-                color: '#ffffff',
-                strokeWidth: 2.5,
-              })}
-              <Text style={styles.sellerReturnCtaText}>{mainDashboard.title}</Text>
-              <ArrowRight size={13} color="#ffffff" strokeWidth={2.6} />
-            </View>
-          </TouchableOpacity>
-        </View>
-      )}
 
       {/* Search Input Bar with Filter Button */}
       <View style={styles.searchSection}>
@@ -838,38 +773,33 @@ export function HomeScreen() {
               userLocation={userLocation}
               isLiked={userLikes.has(item.id)}
               onPress={() =>
-                navigation.navigate('ProductDetail', { id: item.id, title: item.title })
+                navigation.navigate('ProductDetail', {
+                  id: item.id,
+                  title: item.title,
+                  initialProduct: item,
+                })
               }
               onLike={handleToggleLike}
               onAddToCart={() => addToCart(item.id, 1)}
             />
           )}
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.5}
           ListFooterComponent={
             products.length > 0 ? (
               <View style={styles.paginationFooter}>
-                {hasMore ? (
-                  <TouchableOpacity
-                    style={styles.loadMoreBtn}
-                    onPress={handleLoadMore}
-                    disabled={loadingMore}
-                    activeOpacity={0.8}
-                  >
-                    {loadingMore ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    ) : (
-                      <>
-                        <Text style={styles.loadMoreBtnText}>Load More Products</Text>
-                        <ChevronDown size={16} color="#ffffff" />
-                      </>
-                    )}
-                  </TouchableOpacity>
-                ) : (
+                {loadingMore ? (
+                  <View style={styles.autoLoadingMoreWrap}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={styles.autoLoadingMoreText}>Loading more products...</Text>
+                  </View>
+                ) : !hasMore ? (
                   <View style={styles.endOfResults}>
                     <View style={styles.endLine} />
                     <Text style={styles.endText}>Showing all {products.length} products</Text>
                     <View style={styles.endLine} />
                   </View>
-                )}
+                ) : null}
               </View>
             ) : null
           }
@@ -1340,6 +1270,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: '100%',
   },
+  autoLoadingMoreWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 8,
+  },
+  autoLoadingMoreText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748b',
+  },
   loadMoreBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1389,78 +1331,5 @@ const styles = StyleSheet.create({
     color: '#475569',
     textAlign: 'center',
     paddingVertical: 12,
-  },
-  sellerReturnBarWrap: {
-    paddingHorizontal: 16,
-    paddingTop: 2,
-    paddingBottom: 6,
-  },
-  sellerReturnBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#0f172a',
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(233, 111, 40, 0.35)',
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.16,
-    shadowRadius: 8,
-    elevation: 4,
-    gap: 10,
-  },
-  sellerReturnLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flex: 1,
-  },
-  sellerReturnIconBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: 'rgba(233, 111, 40, 0.22)',
-    borderWidth: 1,
-    borderColor: 'rgba(233, 111, 40, 0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sellerReturnTextCol: {
-    flex: 1,
-  },
-  sellerReturnTitle: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: '#ffffff',
-    letterSpacing: 0.2,
-  },
-  sellerReturnSub: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#94a3b8',
-    marginTop: 1,
-  },
-  sellerReturnCtaPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: colors.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  sellerReturnCtaText: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#ffffff',
-    letterSpacing: 0.3,
   },
 });

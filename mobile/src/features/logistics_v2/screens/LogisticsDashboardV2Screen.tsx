@@ -11,6 +11,7 @@ import {
   ScrollView,
   Animated,
   Image,
+  RefreshControl,
 } from 'react-native';
 import {
   LayoutDashboard,
@@ -58,6 +59,7 @@ import { LogisticsKYCTabV2 } from '../components/LogisticsKYCTabV2';
 import { LogisticsSettingsTabV2 } from '../components/LogisticsSettingsTabV2';
 import { MissionDetailsModalV2 } from '../components/MissionDetailsModalV2';
 import { calculateRiderEarnings, getPickupAddress, getDeliveryAddress } from '../utils/logistics-utils';
+import { logisticsCache } from '../../../services/logisticsCache';
 
 type LogisticsTab = 'dashboard' | 'orders' | 'earnings' | 'verification' | 'settings';
 
@@ -94,6 +96,7 @@ export function LogisticsDashboardV2Screen() {
   const { user, profile, refreshProfile } = useAuth();
 
   const [activeTab, setActiveTab] = useState<LogisticsTab>('dashboard');
+  const [earningsSubTab, setEarningsSubTab] = useState<'withdrawals' | 'missions' | 'ledger'>('withdrawals');
   const [isOnline, setIsOnline] = useState((profile as any)?.is_online || false);
   const [togglingOnline, setTogglingOnline] = useState(false);
 
@@ -106,6 +109,7 @@ export function LogisticsDashboardV2Screen() {
   const [riderCityName, setRiderCityName] = useState<string>('All Cities');
   const [riderBankName, setRiderBankName] = useState<string>((profile as any)?.payout_bank_name || '');
   const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Home Screen active delivery snapshot state
   const [activeMissions, setActiveMissions] = useState<any[]>([]);
@@ -221,15 +225,17 @@ export function LogisticsDashboardV2Screen() {
         .eq('user_id', user.id)
         .maybeSingle();
 
+      let currentBal = balance;
+      let currentEsc = escrowBalance;
       if (walletData) {
-        const bal = walletData.balance || 0;
-        const esc = walletData.escrow_balance || 0;
-        setBalance(bal);
-        setEscrowBalance(esc);
+        currentBal = walletData.balance || 0;
+        currentEsc = walletData.escrow_balance || 0;
+        setBalance(currentBal);
+        setEscrowBalance(currentEsc);
 
         if (!initialLoadedRef.current) {
-          prevBalanceRef.current = Number(bal);
-          prevEscrowRef.current = Number(esc);
+          prevBalanceRef.current = Number(currentBal);
+          prevEscrowRef.current = Number(currentEsc);
           initialLoadedRef.current = true;
         }
       }
@@ -237,20 +243,31 @@ export function LogisticsDashboardV2Screen() {
       // 2. Fetch profile status & specs
       const { data: pData } = await supabase
         .from('profiles')
-        .select('is_online, city_id, payout_bank_name, is_verified')
+        .select('is_online, city_id, payout_bank_name')
         .eq('id', user.id)
         .maybeSingle();
 
+      let currentOnline = isOnline;
+      let currentCity = riderCityName;
+      let currentBank = riderBankName;
+
       if (pData) {
-        setIsOnline(pData.is_online || false);
-        if (pData.payout_bank_name) setRiderBankName(pData.payout_bank_name);
+        currentOnline = pData.is_online || false;
+        setIsOnline(currentOnline);
+        if (pData.payout_bank_name) {
+          currentBank = pData.payout_bank_name;
+          setRiderBankName(currentBank);
+        }
         if (pData.city_id) {
           const { data: cData } = await supabase
             .from('cities')
             .select('name')
             .eq('id', pData.city_id)
             .maybeSingle();
-          if (cData?.name) setRiderCityName(cData.name);
+          if (cData?.name) {
+            currentCity = cData.name;
+            setRiderCityName(currentCity);
+          }
         }
       }
 
@@ -261,8 +278,10 @@ export function LogisticsDashboardV2Screen() {
         .eq('user_id', user.id)
         .maybeSingle();
 
+      let currentVehicle = riderVehicle;
       if (logDetails?.vehicle_type) {
-        setRiderVehicle(logDetails.vehicle_type);
+        currentVehicle = logDetails.vehicle_type;
+        setRiderVehicle(currentVehicle);
       }
 
       // 3. Fetch active missions and available count
@@ -285,7 +304,7 @@ export function LogisticsDashboardV2Screen() {
           .from('send_orders')
           .select('*')
           .eq('rider_id', user.id)
-          .in('status', ['assigned_rider', 'pickup', 'on_the_way', 'assigned', 'picked_up', 'in_transit'])
+          .in('status', ['assigned_rider', 'pickup', 'on_the_way'])
           .order('created_at', { ascending: false }),
         supabase
           .from('orders')
@@ -344,10 +363,14 @@ export function LogisticsDashboardV2Screen() {
         );
       }
 
+      const activeCount = formattedActive.length;
+      const availableCount = (availOrdersRes.count || 0) + (availSendRes.count || 0);
+      const completedCount = (delShipmentsRes.count || 0) + (delSendRes.count || 0);
+
       setActiveMissions(formattedActive);
-      setActiveMissionCount(formattedActive.length);
-      setAvailableMissionCount((availOrdersRes.count || 0) + (availSendRes.count || 0));
-      setCompletedMissionCount((delShipmentsRes.count || 0) + (delSendRes.count || 0));
+      setActiveMissionCount(activeCount);
+      setAvailableMissionCount(availableCount);
+      setCompletedMissionCount(completedCount);
 
       // 4. Fetch KYC Status
       const { data: kycData } = await (supabase as any)
@@ -358,27 +381,82 @@ export function LogisticsDashboardV2Screen() {
         .limit(1)
         .maybeSingle();
 
-      if (kycData?.status) {
-        setKycStatus(kycData.status.toLowerCase());
-      } else {
-        setKycStatus('none');
-      }
+      const kycVal = (kycData?.status ? kycData.status.toLowerCase() : 'none') as any;
+      setKycStatus(kycVal);
+
+      // Save to persistent SWR Cache
+      logisticsCache.setOverview(user.id, {
+        balance: currentBal,
+        escrowBalance: currentEsc,
+        isOnline: currentOnline,
+        riderCityName: currentCity,
+        riderBankName: currentBank,
+        riderVehicle: currentVehicle,
+        activeMissions: formattedActive,
+        activeMissionCount: activeCount,
+        availableMissionCount: availableCount,
+        completedMissionCount: completedCount,
+        kycStatus: kycVal,
+      });
     } catch (e) {
       console.warn('[LogisticsDashboardV2] fetchOverview error:', e);
     } finally {
       setInitialLoading(false);
+      setRefreshing(false);
     }
-  }, [user]);
+  }, [user, balance, escrowBalance, isOnline, riderCityName, riderBankName, riderVehicle]);
+
+  // Debounced fetch to coalesce rapid realtime Postgres changes (e.g. 5 updates in 1s = 1 query)
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedFetchOverview = useCallback(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      fetchRiderOverview();
+    }, 500);
+  }, [fetchRiderOverview]);
 
   useEffect(() => {
-    fetchRiderOverview();
-
     if (!user) return;
+
+    let isMounted = true;
+
+    // SWR Cache Fast-Path: Restore cached metrics immediately (0ms visual load, no blank state)
+    logisticsCache.getOverview(user.id).then((cached) => {
+      if (!isMounted || !cached?.data) {
+        fetchRiderOverview();
+        return;
+      }
+
+      const { data, isStale } = cached;
+      setBalance(data.balance || 0);
+      setEscrowBalance(data.escrowBalance || 0);
+      setIsOnline(Boolean(data.isOnline));
+      if (data.riderCityName) setRiderCityName(data.riderCityName);
+      if (data.riderBankName) setRiderBankName(data.riderBankName);
+      if (data.riderVehicle) setRiderVehicle(data.riderVehicle);
+      setActiveMissions(data.activeMissions || []);
+      setActiveMissionCount(data.activeMissionCount || 0);
+      setAvailableMissionCount(data.availableMissionCount || 0);
+      setCompletedMissionCount(data.completedMissionCount || 0);
+      setKycStatus((data.kycStatus as any) || 'none');
+      setInitialLoading(false);
+
+      prevBalanceRef.current = Number(data.balance || 0);
+      prevEscrowRef.current = Number(data.escrowBalance || 0);
+      initialLoadedRef.current = true;
+
+      // If cache is stale, revalidate silently in the background
+      if (isStale) {
+        fetchRiderOverview();
+      }
+    });
 
     // Initialize notification channels and register device push token
     registerForPushNotificationsAsync(user.id);
 
-    // Realtime listeners for wallet, profile, missions & earnings
+    // Realtime listeners with debouncing
     const channel = supabase
       .channel(`rider-dashboard-v2-${user.id}`)
       .on(
@@ -418,23 +496,23 @@ export function LogisticsDashboardV2Screen() {
 
           prevBalanceRef.current = newBal;
           prevEscrowRef.current = newEscrow;
-          fetchRiderOverview();
+          debouncedFetchOverview();
         }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
-        () => fetchRiderOverview()
+        () => debouncedFetchOverview()
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'shipments', filter: `rider_id=eq.${user.id}` },
-        () => fetchRiderOverview()
+        () => debouncedFetchOverview()
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'send_orders', filter: `rider_id=eq.${user.id}` },
-        () => fetchRiderOverview()
+        () => debouncedFetchOverview()
       )
       // Broadcast listener for NEW available marketplace orders
       .on(
@@ -455,7 +533,7 @@ export function LogisticsDashboardV2Screen() {
             });
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
           }
-          fetchRiderOverview();
+          debouncedFetchOverview();
         }
       )
       .on(
@@ -476,7 +554,7 @@ export function LogisticsDashboardV2Screen() {
             });
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
           }
-          fetchRiderOverview();
+          debouncedFetchOverview();
         }
       )
       // Broadcast listener for NEW available SEND package orders
@@ -498,7 +576,7 @@ export function LogisticsDashboardV2Screen() {
             });
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
           }
-          fetchRiderOverview();
+          debouncedFetchOverview();
         }
       )
       .on(
@@ -519,7 +597,7 @@ export function LogisticsDashboardV2Screen() {
             });
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
           }
-          fetchRiderOverview();
+          debouncedFetchOverview();
         }
       )
       // Real-time listener on notifications table
@@ -549,15 +627,20 @@ export function LogisticsDashboardV2Screen() {
       .subscribe();
 
     return () => {
+      isMounted = false;
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
       supabase.removeChannel(channel);
     };
-  }, [user, fetchRiderOverview]);
+  }, [user, fetchRiderOverview, debouncedFetchOverview]);
 
   const handleToggleOnline = async (val: boolean) => {
     if (!user) return;
     try {
       setTogglingOnline(true);
       setIsOnline(val);
+      logisticsCache.patchOverview(user.id, { isOnline: val });
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
       const { error } = await (supabase as any)
@@ -575,11 +658,18 @@ export function LogisticsDashboardV2Screen() {
       if (refreshProfile) refreshProfile();
     } catch (e: any) {
       setIsOnline(!val);
+      logisticsCache.patchOverview(user.id, { isOnline: !val });
       toast.error('Radar Error', { description: e?.message || 'Could not change online status.' });
     } finally {
       setTogglingOnline(false);
     }
   };
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    fetchRiderOverview();
+  }, [fetchRiderOverview]);
 
   const handleTabSwitch = (tab: LogisticsTab) => {
     if (activeTab !== tab) {
@@ -1023,6 +1113,14 @@ export function LogisticsDashboardV2Screen() {
             showsVerticalScrollIndicator={false}
             onScroll={handleScroll}
             scrollEventThrottle={16}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                colors={['#FA7E2B']}
+                tintColor="#FA7E2B"
+              />
+            }
           >
             {/* Live Delivery Snapshot Card (Active Mission) */}
             {activeMissions.length > 0 ? (
@@ -1253,7 +1351,10 @@ export function LogisticsDashboardV2Screen() {
 
               <TouchableOpacity
                 style={styles.quickHubCard}
-                onPress={() => handleTabSwitch('earnings')}
+                onPress={() => {
+                  setEarningsSubTab('missions');
+                  handleTabSwitch('earnings');
+                }}
                 activeOpacity={0.8}
               >
                 <View style={[styles.quickHubIconWrap, { backgroundColor: '#ECFDF5' }]}>
@@ -1346,7 +1447,12 @@ export function LogisticsDashboardV2Screen() {
           </View>
         )}
 
-        {activeTab === 'earnings' && <LogisticsEarningsTabV2 onScroll={handleScroll} />}
+        {activeTab === 'earnings' && (
+          <LogisticsEarningsTabV2
+            onScroll={handleScroll}
+            initialSubTab={earningsSubTab}
+          />
+        )}
 
         {activeTab === 'verification' && (
           <LogisticsKYCTabV2

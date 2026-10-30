@@ -898,7 +898,7 @@ export function SellerOrdersTab({
                   <View>
                     <View style={styles.sectionHeadingRow}>
                       <MapPin size={12} color="#64748B" />
-                      <Text style={styles.fieldLabel}>SELECT DELIVERY ZONE</Text>
+                      <Text style={styles.fieldLabel}>SELECT PICKUP ZONE</Text>
                     </View>
 
                     <View style={styles.zonesGrid}>

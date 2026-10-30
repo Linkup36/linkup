@@ -52,6 +52,7 @@ import {
   triggerRiderMissionAlertAsync,
   triggerRiderEarningsAlertAsync,
 } from '../../../services/notifications';
+import { logisticsCache } from '../../../services/logisticsCache';
 
 const VEHICLE_OPTIONS = [
   { id: 'Motorcycle', label: 'Motorcycle / Bike', icon: '🏍️', desc: 'Fast parcels & food dispatches' },
@@ -339,14 +340,43 @@ export function LogisticsSettingsTabV2({
         setKycStatus('verified');
       }
 
-      // 4. Fetch cities and zones for territory selection
-      const [citiesRes, zonesRes] = await Promise.all([
-        supabase.from('cities').select('*').order('name'),
-        supabase.from('zones').select('*').order('name'),
-      ]);
+      // 4. Fetch cities and delivery_zones from metadata cache or DB
+      const cachedMeta = await logisticsCache.getMetadata();
+      if (cachedMeta?.data?.cities?.length && cachedMeta?.data?.zones?.length) {
+        setCities(cachedMeta.data.cities);
+        setZones(cachedMeta.data.zones);
+        if (cachedMeta.isStale) {
+          Promise.all([
+            supabase.from('cities').select('*').order('name'),
+            supabase.from('delivery_zones').select('*').order('name'),
+          ]).then(([cRes, zRes]) => {
+            if (cRes.data) setCities(cRes.data);
+            if (zRes.data) setZones(zRes.data);
+            if (cRes.data && zRes.data) {
+              logisticsCache.setMetadata({
+                cities: cRes.data,
+                zones: zRes.data,
+                feeConfigs: cachedMeta.data.feeConfigs,
+              });
+            }
+          });
+        }
+      } else {
+        const [citiesRes, zonesRes] = await Promise.all([
+          supabase.from('cities').select('*').order('name'),
+          supabase.from('delivery_zones').select('*').order('name'),
+        ]);
 
-      if (citiesRes.data) setCities(citiesRes.data);
-      if (zonesRes.data) setZones(zonesRes.data);
+        if (citiesRes.data) setCities(citiesRes.data);
+        if (zonesRes.data) setZones(zonesRes.data);
+        if (citiesRes.data && zonesRes.data) {
+          logisticsCache.setMetadata({
+            cities: citiesRes.data,
+            zones: zonesRes.data,
+            feeConfigs: cachedMeta?.data?.feeConfigs,
+          });
+        }
+      }
     } catch (e) {
       console.warn('[LogisticsSettings] Error fetching settings:', e);
     } finally {

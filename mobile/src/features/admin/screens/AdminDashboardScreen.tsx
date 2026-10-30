@@ -123,11 +123,11 @@ export function AdminDashboardScreen() {
         });
       }
 
-      // 2. Active Orders Count
+      // 2. Active Orders Count (excluding completed, cancelled, delivered)
       const { count: activeCount } = await supabase
         .from('orders')
         .select('*', { count: 'exact', head: true })
-        .in('status', ['pending', 'confirmed', 'in_transit', 'paid']);
+        .not('status', 'in', '(completed,cancelled,delivered)');
 
       // 3. Total Orders Count
       const { count: totalOrdersCount } = await supabase
@@ -147,7 +147,7 @@ export function AdminDashboardScreen() {
           .eq('status', 'open'),
         (supabase as any)
           .from('issues')
-          .select('*, profiles:user_id(display_name)')
+          .select('*, profiles!issues_reporter_profile_fkey(display_name)')
           .eq('status', 'open')
           .order('created_at', { ascending: false })
           .limit(4),
@@ -191,14 +191,56 @@ export function AdminDashboardScreen() {
     }
   }, []);
 
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+
+  const fetchUnreadNotifications = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const { count, error } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('read', false);
+
+      if (!error && typeof count === 'number') {
+        setUnreadNotifCount(count);
+      }
+    } catch {
+      // quiet fallback
+    }
+  }, [user?.id]);
+
   useEffect(() => {
     fetchAdminStats();
-  }, [fetchAdminStats]);
+    fetchUnreadNotifications();
+
+    if (!user?.id) return;
+    const channel = supabase
+      .channel(`admin-user-notifications-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          fetchUnreadNotifications();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchAdminStats, fetchUnreadNotifications, user?.id]);
 
   const onRefresh = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setRefreshing(true);
     fetchAdminStats();
+    fetchUnreadNotifications();
   };
 
   const navTabs = [
@@ -213,12 +255,11 @@ export function AdminDashboardScreen() {
     { key: 'logistics', label: 'Shipping', icon: Truck },
     { key: 'fees', label: 'Fee Config', icon: Wallet },
     { key: 'categories', label: 'Categories', icon: Grid },
-    { key: 'newsletter', label: 'Broadcast', icon: Mail },
+    { key: 'newsletter', label: 'Push Broadcast', icon: Bell },
   ];
 
   const currentTabConfig = navTabs.find((t) => t.key === activeTab) || navTabs[0];
   const CurrentIcon = currentTabConfig.icon;
-  const totalAlerts = counts.openIssues + counts.pendingKyc + counts.pendingPackages;
 
   return (
     <SafeView edges={['top', 'left', 'right']} style={styles.safeContainer}>
@@ -254,7 +295,6 @@ export function AdminDashboardScreen() {
                 accessibilityLabel="Open navigation menu"
               >
                 <Menu size={20} color="#0F172A" strokeWidth={2.4} />
-                {totalAlerts > 0 && <View style={styles.menuAlertDot} />}
               </TouchableOpacity>
             </View>
 
@@ -269,7 +309,7 @@ export function AdminDashboardScreen() {
                 style={styles.bellBtn}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setActiveTab('complaints');
+                  navigation.navigate('Notifications');
                 }}
                 activeOpacity={0.7}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -277,7 +317,7 @@ export function AdminDashboardScreen() {
                 accessibilityLabel="Notifications"
               >
                 <Bell size={18} color="#0F172A" strokeWidth={2.2} />
-                {totalAlerts > 0 && <View style={styles.bellBadgeDot} />}
+                {unreadNotifCount > 0 && <View style={styles.bellBadgeDot} />}
               </TouchableOpacity>
 
               {/* Logo Badge -> Storefront return */}

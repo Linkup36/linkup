@@ -65,7 +65,7 @@ export function PromoterMarketplaceTab({
       <View style={styles.introCard}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Sparkles size={16} color={BRAND_ORANGE} />
-          <Text style={styles.introTitle}>Earn 5% On Every Product</Text>
+          <Text style={styles.introTitle}>Earn 3% On Every Product</Text>
         </View>
         <Text style={styles.introSub}>
           Select any verified marketplace item below to generate your unique tracking link. Share it with buyers on WhatsApp, TikTok, or Instagram.

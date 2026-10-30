@@ -46,7 +46,7 @@ export function SellerIssuesTab({
     try {
       const { data, error } = await supabase
         .from('issues')
-        .select('*, products(title), reporter:profiles!reporter_id(display_name)')
+        .select('*, products(title), reporter:profiles!issues_reporter_profile_fkey(display_name)')
         .eq('seller_id', userId)
         .order('created_at', { ascending: false });
 

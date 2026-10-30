@@ -145,11 +145,6 @@ export async function registerForPushNotificationsAsync(userId?: string): Promis
         return null;
       }
 
-      // Remote push tokens are not supported in Expo Go on Android/iOS (SDK 53+); skip cleanly
-      if (isRunningInExpoGoClient()) {
-        return null;
-      }
-
       try {
         let projectId =
           Constants?.expoConfig?.extra?.eas?.projectId ??
@@ -165,15 +160,32 @@ export async function registerForPushNotificationsAsync(userId?: string): Promis
         );
         token = pushTokenData.data;
 
-        // Save token to Supabase profiles table if column exists
+        // Save token to Supabase
         if (userId && token) {
-          const { error: tokenSaveError } = await supabase
-            .from('profiles')
-            .update({ push_token: token, updated_at: new Date().toISOString() })
-            .eq('id', userId);
+          // 1. Primary: Save to push_subscriptions table (which exists in public schema)
+          try {
+            await supabase.from('push_subscriptions').upsert(
+              {
+                user_id: userId,
+                endpoint: token,
+                p256dh: '',
+                auth: '',
+                user_agent: 'LinkUp Mobile (Expo)',
+              },
+              { onConflict: 'user_id, endpoint' }
+            );
+          } catch (subErr) {
+            console.warn('[PushNotifications] Notice saving to push_subscriptions:', subErr);
+          }
 
-          if (tokenSaveError) {
-            throw new Error(`Could not save push token: ${tokenSaveError.message}`);
+          // 2. Secondary: Update profiles.push_token if the column exists in database
+          try {
+            await supabase
+              .from('profiles')
+              .update({ push_token: token, updated_at: new Date().toISOString() })
+              .eq('id', userId);
+          } catch {
+            // quiet fallback if column does not exist on profiles
           }
         }
       } catch (e: any) {
@@ -195,10 +207,6 @@ export async function registerForPushNotificationsAsync(userId?: string): Promis
  * Helper to fetch the current Expo Push Token for this physical device
  */
 export async function getDevicePushTokenDirectAsync(): Promise<string | null> {
-  if (isRunningInExpoGoClient()) {
-    return null;
-  }
-
   try {
     let projectId =
       Constants?.expoConfig?.extra?.eas?.projectId ??

@@ -88,7 +88,7 @@ export function OrdersScreen() {
         .from('issues')
         .select(`
           *,
-          seller:profiles!seller_id(display_name),
+          seller:profiles!issues_seller_id_fkey(display_name),
           product:products(title, images)
         `)
         .eq('reporter_id', user.id)

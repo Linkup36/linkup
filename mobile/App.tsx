@@ -9,6 +9,11 @@ import { RootNavigator } from './src/navigation/RootNavigator';
 import { useAuth } from './src/context/AuthContext';
 import { registerForPushNotificationsAsync } from './src/services/notifications';
 import { GlobalNotificationListener } from './src/services/GlobalNotificationListener';
+import { NetworkDetector } from './src/components/ui/NetworkDetector';
+import { injectGlobalFonts } from './src/theme/fontLoader';
+
+// Initialize Syne and Inter Google Fonts for web
+injectGlobalFonts();
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -21,6 +26,9 @@ const queryClient = new QueryClient({
 });
 
 export default function App() {
+  useEffect(() => {
+    injectGlobalFonts();
+  }, []);
   return (
     <SafeAreaProvider initialWindowMetrics={initialWindowMetrics}>
       <QueryClientProvider client={queryClient}>
@@ -30,6 +38,7 @@ export default function App() {
             <CartProvider>
               <StatusBar style="light" />
               <RootNavigator />
+              <NetworkDetector />
             </CartProvider>
           </AuthProvider>
         </NetworkProvider>

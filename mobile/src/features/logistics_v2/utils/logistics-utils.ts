@@ -210,15 +210,19 @@ export const calculateRiderEarnings = (
   if (!shipment) return 0;
 
   const payoutRate = feeConfig?.payoutRate ?? 0.80; // default 80%
-  const minPayout = feeConfig?.minPayout ?? 1000;    // default ₦1,000
+  const minPayout = feeConfig?.minPayout ?? 0;       // default ₦0 (no deficit floor)
 
   const isSendOrder =
     shipment.is_send_order ||
     String(shipment.id || '').startsWith('LSEND') ||
     String(shipment.order_id || '').startsWith('LSEND');
 
-  // 1. Explicit rider_earnings
+  // 1. Explicit rider_earnings (ensure legacy floor does not exceed delivery_fee)
   if (typeof shipment.rider_earnings === 'number' && shipment.rider_earnings > 0) {
+    const totalFee = Number(shipment.delivery_fee || 0);
+    if (totalFee > 0 && shipment.rider_earnings > totalFee) {
+      return Math.round(totalFee * payoutRate);
+    }
     return Math.round(shipment.rider_earnings);
   }
 
@@ -233,8 +237,12 @@ export const calculateRiderEarnings = (
       return Math.round(breakdownEarnings);
     }
 
-    const totalFee = Number(shipment.delivery_fee || 1500);
-    return Math.max(minPayout, Math.round(totalFee * payoutRate));
+    const totalFee = Number(shipment.delivery_fee || 0);
+    const commissionCut = Math.round(totalFee * payoutRate);
+    if (minPayout > 0) {
+      return Math.min(totalFee, Math.max(minPayout, commissionCut));
+    }
+    return commissionCut;
   }
 
   // 3. Marketplace shipments rider_fee_breakdown

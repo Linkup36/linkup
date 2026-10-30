@@ -8,3 +8,4 @@ export * from './PaystackWebViewModal';
 export * from './GooeyToast';
 export * from './CustomAlertModal';
 export * from './AnimatedCounter';
+export * from './NetworkDetector';

@@ -261,6 +261,7 @@ declare module 'expo-location' {
   export function hasServicesEnabledAsync(): Promise<boolean>;
   export function getLastKnownPositionAsync(options?: any): Promise<{ coords: { latitude: number; longitude: number; altitude?: number | null } } | null>;
   export function getCurrentPositionAsync(options?: any): Promise<{ coords: { latitude: number; longitude: number; altitude?: number | null } }>;
+  export function geocodeAsync(address: string): Promise<Array<{ latitude: number; longitude: number; altitude?: number | null }>>;
   export function reverseGeocodeAsync(location: { latitude: number; longitude: number }): Promise<Array<{
     city?: string | null;
     district?: string | null;
