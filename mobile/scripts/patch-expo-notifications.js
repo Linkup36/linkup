@@ -286,6 +286,49 @@ function patchKotlinAndroidPlugin(pkgName) {
   }
 }
 
+function patchAsyncStorage() {
+  const asyncStorageNextDir = path.join(
+    __dirname,
+    '..',
+    'node_modules',
+    '@react-native-async-storage',
+    'async-storage',
+    'android',
+    'src',
+    'main',
+    'java',
+    'com',
+    'reactnativecommunity',
+    'asyncstorage',
+    'next'
+  );
+  if (fs.existsSync(asyncStorageNextDir)) {
+    fs.rmSync(asyncStorageNextDir, { recursive: true, force: true });
+    console.log('[patch] Removed unused async-storage next/ Room files for AGP 9 compatibility.');
+  }
+
+  const asyncStorageGradlePath = path.join(
+    __dirname,
+    '..',
+    'node_modules',
+    '@react-native-async-storage',
+    'async-storage',
+    'android',
+    'build.gradle'
+  );
+  if (fs.existsSync(asyncStorageGradlePath)) {
+    let content = fs.readFileSync(asyncStorageGradlePath, 'utf8');
+    if (!content.includes("exclude '**/next/**'")) {
+      content = content.replace(
+        "sourceSets.main {",
+        "sourceSets.main {\n        java.exclude '**/next/**'"
+      );
+      fs.writeFileSync(asyncStorageGradlePath, content);
+      console.log('[patch] Added exclude **/next/** to async-storage build.gradle.');
+    }
+  }
+}
+
 try {
   patchTopicSubscription(topicBuildPath, false);
   patchTopicSubscription(topicSrcPath, true);
@@ -301,6 +344,7 @@ try {
   );
   patchExpoConstants();
   patchExpoModulesCore();
+  patchAsyncStorage();
 
   const kotlinPluginPkgs = [
     'react-native-maps',
@@ -315,4 +359,5 @@ try {
 } catch (err) {
   console.warn('[patch] Failed to patch dependencies:', err.message);
 }
+
 
