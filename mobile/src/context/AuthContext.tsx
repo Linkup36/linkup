@@ -3,6 +3,7 @@ import { Linking } from 'react-native';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase, getFreshAccessToken, handleAuthDeepLink } from '../services/supabase';
 import { LocalStorage } from '../storage/localStorage';
+import { navigateSafely } from '../navigation/navigationRef';
 
 export interface UserProfile {
   id: string;
@@ -199,6 +200,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (_event, currentSession) => {
       setSession(currentSession);
       setUser(currentSession?.user ?? null);
+
+      if (_event === 'PASSWORD_RECOVERY') {
+        navigateSafely('ResetPassword');
+      }
 
       if (currentSession?.user?.id) {
         await fetchProfileAndRoles(currentSession.user.id);

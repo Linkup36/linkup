@@ -32,12 +32,19 @@ import { OnboardingScreen } from '../features/auth/screens/OnboardingScreen';
 import { LoginScreen } from '../features/auth/screens/LoginScreen';
 import { RegisterScreen } from '../features/auth/screens/RegisterScreen';
 import { ForgotPasswordScreen } from '../features/auth/screens/ForgotPasswordScreen';
+import { ResetPasswordScreen } from '../features/auth/screens/ResetPasswordScreen';
 import { TermsAndPrivacyScreen } from '../features/auth/screens/TermsAndPrivacyScreen';
+import { navigationRef } from './navigationRef';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const linking = {
-  prefixes: ['linkup://', 'https://linkup.ng'],
+  prefixes: [
+    'linkup://',
+    'https://www.linkupng.com',
+    'https://linkupng.com',
+    'https://linkup.ng',
+  ],
   config: {
     screens: {
       MainTabs: {
@@ -68,6 +75,7 @@ const linking = {
       Onboarding: 'onboarding',
       Login: 'login',
       Register: 'register',
+      ForgotPassword: 'forgot-password',
       ResetPassword: 'reset-password',
     },
   },
@@ -101,7 +109,7 @@ export function RootNavigator() {
     user && profile && profile.onboarding_completed === false ? 'Onboarding' : 'MainTabs';
 
   return (
-    <NavigationContainer linking={linking}>
+    <NavigationContainer ref={navigationRef} linking={linking}>
       <Stack.Navigator
         initialRouteName={initialRouteName}
         screenOptions={{
@@ -149,8 +157,13 @@ export function RootNavigator() {
           options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
         />
         <Stack.Screen
-          name="ResetPassword"
+          name="ForgotPassword"
           component={ForgotPasswordScreen}
+          options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+        />
+        <Stack.Screen
+          name="ResetPassword"
+          component={ResetPasswordScreen}
           options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
         />
         <Stack.Screen

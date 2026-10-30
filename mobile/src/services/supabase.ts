@@ -2,6 +2,7 @@ import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ENV } from '../config/env';
+import { navigateSafely } from '../navigation/navigationRef';
 
 /**
  * Mobile-optimized Supabase client configured with persistent AsyncStorage,
@@ -66,6 +67,10 @@ export async function invokeEdgeFunction<T = any>(
 export async function handleAuthDeepLink(url: string): Promise<boolean> {
   if (!url) return false;
   try {
+    const isRecovery =
+      url.includes('type=recovery') ||
+      url.includes('reset-password');
+
     // 1. Check for tokens in hash fragment (#access_token=...&refresh_token=...)
     if (url.includes('#')) {
       const hashPart = url.split('#')[1];
@@ -77,7 +82,12 @@ export async function handleAuthDeepLink(url: string): Promise<boolean> {
           access_token: accessToken,
           refresh_token: refreshToken,
         });
-        if (!error) return true;
+        if (!error) {
+          if (isRecovery) {
+            navigateSafely('ResetPassword');
+          }
+          return true;
+        }
       }
     }
 
@@ -88,8 +98,19 @@ export async function handleAuthDeepLink(url: string): Promise<boolean> {
       const code = urlObj.searchParams.get('code');
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
-        if (!error) return true;
+        if (!error) {
+          if (isRecovery) {
+            navigateSafely('ResetPassword');
+          }
+          return true;
+        }
       }
+    }
+
+    // 3. Fallback: If URL just directs to reset-password scheme
+    if (isRecovery) {
+      navigateSafely('ResetPassword');
+      return true;
     }
   } catch (err) {
     console.warn('[supabase] Error processing auth deep link:', err);

@@ -3,7 +3,8 @@ import { NavigatorScreenParams } from '@react-navigation/native';
 export type AuthStackParamList = {
   Login: undefined;
   Register: undefined;
-  ResetPassword: { email?: string };
+  ForgotPassword: { email?: string } | undefined;
+  ResetPassword: { email?: string } | undefined;
   Onboarding: undefined;
   TermsAndPrivacy: { initialTab?: 'terms' | 'privacy' } | undefined;
 };
@@ -42,6 +43,7 @@ export type RootStackParamList = {
   Onboarding: undefined;
   Login: undefined;
   Register: undefined;
+  ForgotPassword: { email?: string } | undefined;
   ResetPassword: { email?: string } | undefined;
   TermsAndPrivacy: { initialTab?: 'terms' | 'privacy' } | undefined;
 };
