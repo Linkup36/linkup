@@ -42,6 +42,7 @@ import {
 } from 'lucide-react-native';
 
 import { AdminSidebar } from '../components/AdminSidebar';
+import { AuthGuard } from '../../../components/auth/AuthGuard';
 
 // Tabs
 import { AdminOverviewTab } from '../components/tabs/AdminOverviewTab';
@@ -60,7 +61,7 @@ import { AdminAnalyticsTab } from '../components/tabs/AdminAnalyticsTab';
 export function AdminDashboardScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<any>();
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, roles, signOut } = useAuth();
   const { width: windowWidth } = useWindowDimensions();
   const isLargeScreen = windowWidth >= 840;
 
@@ -106,8 +107,14 @@ export function AdminDashboardScreen() {
   const [criticalIssues, setCriticalIssues] = useState<any[]>([]);
 
   const fetchAdminStats = useCallback(async () => {
+    if (!user || !(roles || []).includes('admin')) {
+      setLoadingInitial(false);
+      setRefreshing(false);
+      return;
+    }
     try {
       // 1. Revenue Ledger
+
       const { data: revData } = await (supabase as any).rpc('get_admin_revenue');
       if (revData) {
         let parsed = revData;
@@ -262,7 +269,12 @@ export function AdminDashboardScreen() {
   const CurrentIcon = currentTabConfig.icon;
 
   return (
-    <SafeView edges={['top', 'left', 'right']} style={styles.safeContainer}>
+    <AuthGuard
+      requiredRoles={['admin']}
+      fallbackTitle="Admin Access Required"
+      fallbackDescription="You must be authenticated with an administrator account to access the LinkUp Admin Console."
+    >
+      <SafeView edges={['top', 'left', 'right']} style={styles.safeContainer}>
       <View style={styles.mainLayout}>
         {/* Tablet / Desktop Docked Persistent Sidebar */}
         {isLargeScreen && isSidebarOpen && (
@@ -390,7 +402,8 @@ export function AdminDashboardScreen() {
         />
       )}
     </SafeView>
-  );
+  </AuthGuard>
+);
 }
 
 const styles = StyleSheet.create({

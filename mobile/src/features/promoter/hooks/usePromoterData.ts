@@ -51,7 +51,8 @@ export interface ProductToPromote {
 }
 
 export function usePromoterData() {
-  const { user, profile } = useAuth();
+  const { user, profile, roles } = useAuth();
+  const isPromoter = (roles || []).some((r) => ['promoter', 'admin'].includes(r));
 
   const [promoterCode, setPromoterCode] = useState<string>('');
   const [wallet, setWallet] = useState<{ balance: number; escrow_balance: number }>({
@@ -232,7 +233,11 @@ export function usePromoterData() {
   // Master load
   const loadAll = useCallback(
     async (isRefresh = false) => {
-      if (!user) return;
+      if (!user || !isPromoter) {
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
 

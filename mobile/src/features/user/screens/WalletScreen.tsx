@@ -13,6 +13,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeView } from '../../../components/ui/SafeView';
+import { AuthGuard } from '../../../components/auth/AuthGuard';
 import { Button } from '../../../components/ui/Button';
 import { AppModal } from '../../../components/ui/AppModal';
 import { PaystackWebViewModal } from '../../../components/ui/PaystackWebViewModal';
@@ -218,7 +219,11 @@ export function WalletScreen() {
   const formatPrice = (amount: number) => '₦' + (amount || 0).toLocaleString('en-NG');
 
   return (
-    <SafeView>
+    <AuthGuard
+      fallbackTitle="Wallet Access"
+      fallbackDescription="Sign in to view your LinkUp Wallet balance, deposit funds, and manage withdrawal payouts."
+    >
+      <SafeView>
       {/* Top Header */}
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
@@ -418,6 +423,7 @@ export function WalletScreen() {
         />
       </AppModal>
     </SafeView>
+    </AuthGuard>
   );
 }
 

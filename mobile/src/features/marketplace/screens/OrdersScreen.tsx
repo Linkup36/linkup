@@ -7,6 +7,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { SafeView } from '../../../components/ui/SafeView';
+import { AuthGuard } from '../../../components/auth/AuthGuard';
 import { useAuth } from '../../../context/AuthContext';
 import { supabase } from '../../../services/supabase';
 import { OrdersHeader } from '../components/OrdersHeader';
@@ -205,7 +206,11 @@ export function OrdersScreen() {
         });
 
   return (
-    <SafeView>
+    <AuthGuard
+      fallbackTitle="Order History"
+      fallbackDescription="Sign in to view your orders, live courier tracking, and delivery receipts."
+    >
+      <SafeView>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
@@ -240,6 +245,7 @@ export function OrdersScreen() {
         )}
       </ScrollView>
     </SafeView>
+    </AuthGuard>
   );
 }
 

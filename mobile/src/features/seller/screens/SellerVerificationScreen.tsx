@@ -32,6 +32,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { SafeView } from '../../../components/ui/SafeView';
+import { AuthGuard } from '../../../components/auth/AuthGuard';
 import { toast as GooeyToast } from '../../../components/ui/GooeyToast';
 import { useAuth } from '../../../context/AuthContext';
 import { supabase } from '../../../services/supabase';
@@ -316,6 +317,17 @@ export function SellerVerificationScreen() {
       setSubmitting(false);
     }
   };
+
+  if (!user) {
+    return (
+      <AuthGuard
+        fallbackTitle="Merchant Verification"
+        fallbackDescription="Sign in to your LinkUp Merchant account to complete KYC verification and submit banking credentials."
+      >
+        <View />
+      </AuthGuard>
+    );
+  }
 
   if (loading) {
     return (

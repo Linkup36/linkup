@@ -46,6 +46,7 @@ import { toast } from '../../../components/ui/GooeyToast';
 import { supabase } from '../../../services/supabase';
 import { useAuth } from '../../../context/AuthContext';
 import { AnimatedCounter } from '../../../components/ui/AnimatedCounter';
+import { AuthGuard } from '../../../components/auth/AuthGuard';
 import {
   setupNotificationChannelsAsync,
   registerForPushNotificationsAsync,
@@ -93,7 +94,10 @@ const getMissionStageInfo = (status: string) => {
 
 export function LogisticsDashboardV2Screen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { user, profile, refreshProfile } = useAuth();
+  const { user, profile, refreshProfile, roles } = useAuth();
+  const isAuthorizedCourier = (roles || []).some((r) =>
+    ['rider', 'logistics', 'admin'].includes(r)
+  );
 
   const [activeTab, setActiveTab] = useState<LogisticsTab>('dashboard');
   const [earningsSubTab, setEarningsSubTab] = useState<'withdrawals' | 'missions' | 'ledger'>('withdrawals');
@@ -216,7 +220,7 @@ export function LogisticsDashboardV2Screen() {
   }, [isOnline]);
 
   const fetchRiderOverview = useCallback(async () => {
-    if (!user) return;
+    if (!user || !isAuthorizedCourier) return;
     try {
       // 1. Fetch wallet balances
       const { data: walletData } = await (supabase as any)
@@ -418,7 +422,7 @@ export function LogisticsDashboardV2Screen() {
   }, [fetchRiderOverview]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !isAuthorizedCourier) return;
 
     let isMounted = true;
 
@@ -739,7 +743,12 @@ export function LogisticsDashboardV2Screen() {
   };
 
   return (
-    <SafeAreaView
+    <AuthGuard
+      requiredRoles={['rider', 'logistics', 'admin']}
+      fallbackTitle="Logistics Portal"
+      fallbackDescription="This portal is reserved for registered delivery couriers and logistics fleet partners. Please sign in with an authorized courier account."
+    >
+      <SafeAreaView
       edges={['top', 'bottom', 'left', 'right']}
       backgroundColor="#FA7E2B"
       statusBarStyle="light-content"
@@ -1553,6 +1562,7 @@ export function LogisticsDashboardV2Screen() {
         userId={user?.id}
       />
     </SafeAreaView>
+    </AuthGuard>
   );
 }
 

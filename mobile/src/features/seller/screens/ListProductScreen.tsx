@@ -20,6 +20,7 @@ import {
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { SafeView } from '../../../components/ui/SafeView';
+import { AuthGuard } from '../../../components/auth/AuthGuard';
 import { toast as GooeyToast } from '../../../components/ui/GooeyToast';
 import { useAuth } from '../../../context/AuthContext';
 import { supabase } from '../../../services/supabase';
@@ -96,19 +97,12 @@ export function ListProductScreen() {
 
   if (!user) {
     return (
-      <SafeView style={styles.centered}>
-        <Store size={48} color={colors.primary} />
-        <Text style={styles.titleText}>Sign In Required</Text>
-        <Text style={styles.subText}>
-          Please sign in to list products on the LinkUp Marketplace.
-        </Text>
-        <TouchableOpacity
-          style={styles.primaryBtn}
-          onPress={() => navigation.navigate('Login')}
-        >
-          <Text style={styles.primaryBtnText}>Sign In</Text>
-        </TouchableOpacity>
-      </SafeView>
+      <AuthGuard
+        fallbackTitle="Sign In Required"
+        fallbackDescription="Please sign in to list products on the LinkUp Marketplace."
+      >
+        <View />
+      </AuthGuard>
     );
   }
 

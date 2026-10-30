@@ -23,6 +23,7 @@ import {
 import * as Haptics from 'expo-haptics';
 
 import { SafeView } from '../../../components/ui/SafeView';
+import { AuthGuard } from '../../../components/auth/AuthGuard';
 import { colors } from '../../../theme/colors';
 import { useAuth } from '../../../context/AuthContext';
 import {
@@ -139,7 +140,12 @@ export function PromoterDashboardScreen() {
   });
 
   return (
-    <SafeView style={styles.safeContainer}>
+    <AuthGuard
+      requiredRoles={['promoter', 'admin']}
+      fallbackTitle="Promoter Hub"
+      fallbackDescription="Sign in to your LinkUp Promoter account to manage referral links, track sales conversions, and withdraw commission earnings."
+    >
+      <SafeView style={styles.safeContainer}>
       {/* 1. Header Bar */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -335,6 +341,7 @@ export function PromoterDashboardScreen() {
         onSubmit={requestWithdrawal}
       />
     </SafeView>
+    </AuthGuard>
   );
 }
 

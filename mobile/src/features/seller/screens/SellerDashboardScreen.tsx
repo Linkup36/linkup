@@ -33,6 +33,7 @@ import {
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { SafeView } from '../../../components/ui/SafeView';
+import { AuthGuard } from '../../../components/auth/AuthGuard';
 import { toast as GooeyToast } from '../../../components/ui/GooeyToast';
 import { useAuth } from '../../../context/AuthContext';
 import { supabase } from '../../../services/supabase';
@@ -149,8 +150,14 @@ export function SellerDashboardScreen() {
     }
   };
 
+  const hasAccess = isSeller || (roles || []).includes('admin');
+
   const fetchDashboardData = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || !hasAccess) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
 
     try {
       const [
@@ -276,7 +283,7 @@ export function SellerDashboardScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.id]);
+  }, [user?.id, hasAccess]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -284,7 +291,7 @@ export function SellerDashboardScreen() {
 
   // Realtime subscriptions for orders & wallet updates
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || !hasAccess) return;
 
     const channel = supabase
       .channel(`seller-dashboard-${user.id}`)
@@ -695,19 +702,12 @@ export function SellerDashboardScreen() {
 
   if (!user) {
     return (
-      <SafeView style={styles.centeredScreen}>
-        <Store size={48} color={colors.primary} />
-        <Text style={styles.promptTitle}>Merchant Sign In Required</Text>
-        <Text style={styles.promptSub}>
-          Please sign in to access your LinkUp Seller Hub, inventory, and wallet.
-        </Text>
-        <TouchableOpacity
-          style={styles.primaryCtaBtn}
-          onPress={() => navigation.navigate('Login')}
-        >
-          <Text style={styles.primaryCtaText}>Sign In</Text>
-        </TouchableOpacity>
-      </SafeView>
+      <AuthGuard
+        fallbackTitle="Merchant Sign In Required"
+        fallbackDescription="Please sign in to access your LinkUp Seller Hub, inventory, and merchant wallet."
+      >
+        <View />
+      </AuthGuard>
     );
   }
 
