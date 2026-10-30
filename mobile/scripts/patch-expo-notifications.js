@@ -335,38 +335,37 @@ function patchDevPackages() {
     const pkgDir = path.join(__dirname, '..', 'node_modules', pkgName, 'android');
     if (!fs.existsSync(pkgDir)) continue;
 
-    const srcDisable = path.join(pkgDir, 'src', 'disableInRelease', 'java');
-    if (fs.existsSync(srcDisable)) {
-      const copyTargets = [
-        path.join(pkgDir, 'src', 'disableInRelease', 'kotlin'),
-        path.join(pkgDir, 'src', 'release', 'java'),
-        path.join(pkgDir, 'src', 'release', 'kotlin'),
-      ];
-      for (const target of copyTargets) {
-        fs.mkdirSync(target, { recursive: true });
-        fs.cpSync(srcDisable, target, { recursive: true });
+    // Clean up any duplicate copied folders to prevent Kotlin Redeclaration errors
+    const duplicateDirs = [
+      path.join(pkgDir, 'src', 'disableInRelease', 'kotlin'),
+      path.join(pkgDir, 'src', 'release', 'java'),
+      path.join(pkgDir, 'src', 'release', 'kotlin'),
+    ];
+    for (const dir of duplicateDirs) {
+      if (fs.existsSync(dir)) {
+        fs.rmSync(dir, { recursive: true, force: true });
+        console.log(`[patch] Cleaned duplicate directory: ${dir}`);
       }
-      console.log(`[patch] Copied ${pkgName} disableInRelease files to release & kotlin directories.`);
     }
 
     const gradlePath = path.join(pkgDir, 'build.gradle');
     if (fs.existsSync(gradlePath)) {
       let content = fs.readFileSync(gradlePath, 'utf8');
-      if (!content.includes('kotlin.srcDir')) {
-        content = content.replace(
-          "java.srcDir 'src/disableInRelease/java'",
-          "java.srcDir 'src/disableInRelease/java'\n        try { kotlin.srcDir 'src/disableInRelease/java' } catch (Throwable ignored) {}\n        try { kotlin.srcDir 'src/disableInRelease/kotlin' } catch (Throwable ignored) {}\n        try { kotlin.srcDir 'src/release/java' } catch (Throwable ignored) {}\n        try { kotlin.srcDir 'src/release/kotlin' } catch (Throwable ignored) {}"
-        );
-        content = content.replace(
-          "java.srcDir 'src/debug/java'",
-          "java.srcDir 'src/debug/java'\n        try { kotlin.srcDir 'src/debug/java' } catch (Throwable ignored) {}"
-        );
-        fs.writeFileSync(gradlePath, content);
-        console.log(`[patch] Added kotlin.srcDir to ${pkgName} build.gradle.`);
-      }
+      // Normalize any previous multi-dir patches
+      content = content.replace(
+        /java\.srcDir\s+'src\/disableInRelease\/java'[\s\S]*?(?=res\.srcDir\s+'src\/disableInRelease\/res')/,
+        "java.srcDir 'src/disableInRelease/java'\n        try { kotlin.srcDir 'src/disableInRelease/java' } catch (Throwable ignored) {}\n        "
+      );
+      content = content.replace(
+        /java\.srcDir\s+'src\/debug\/java'[\s\S]*?(?=res\.srcDir\s+'src\/debug\/res')/,
+        "java.srcDir 'src/debug/java'\n        try { kotlin.srcDir 'src/debug/java' } catch (Throwable ignored) {}\n        "
+      );
+      fs.writeFileSync(gradlePath, content);
+      console.log(`[patch] Configured single kotlin.srcDir in ${pkgName} build.gradle.`);
     }
   }
 }
+
 
 try {
   patchTopicSubscription(topicBuildPath, false);
