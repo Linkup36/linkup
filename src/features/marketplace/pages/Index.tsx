@@ -238,7 +238,7 @@ export default function Index() {
           fetchNextPage();
         }
       },
-      { threshold: 0.1 }
+      { threshold: 0.1, rootMargin: '200px' }
     );
     if (loadMoreRef.current) observer.observe(loadMoreRef.current);
     return () => observer.disconnect();
@@ -400,20 +400,19 @@ export default function Index() {
           </div>
         )}
 
-        {hasNextPage && (
-          <div ref={loadMoreRef} className="flex justify-center py-8">
-            {isFetchingNextPage ? (
-              <WeaveSpinner />
-            ) : (
-              <button 
-                onClick={() => fetchNextPage()}
-                className="px-8 py-3 rounded-full border border-black/[0.05] bg-white hover:bg-gray-50 shadow-sm font-black text-[10px] uppercase tracking-widest transition-all hover:scale-105 active:scale-95"
-              >
-                Load More Products
-              </button>
-            )}
+        {hasNextPage ? (
+          <div ref={loadMoreRef} className="flex justify-center items-center py-10 min-h-[60px]">
+            {isFetchingNextPage && <WeaveSpinner />}
           </div>
-        )}
+        ) : displayProducts.length > 0 ? (
+          <div className="flex items-center justify-center gap-4 py-12 text-slate-400">
+            <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1 max-w-[120px]" />
+            <span className="text-xs font-semibold uppercase tracking-wider">
+              Showing all {displayProducts.length} products
+            </span>
+            <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1 max-w-[120px]" />
+          </div>
+        ) : null}
 
       </div>
     </AppLayout>

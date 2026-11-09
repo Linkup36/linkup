@@ -232,8 +232,7 @@ export function HomeScreen() {
   };
 
   const handleLoadMore = () => {
-    if (loadingMore || !hasMore) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (loadingMore || loading || !hasMore || products.length === 0) return;
     fetchProducts(page + 1, true);
   };
 
@@ -701,6 +700,8 @@ export function HomeScreen() {
           numColumns={2}
           contentContainerStyle={styles.productList}
           columnWrapperStyle={styles.columnWrapper}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -724,29 +725,18 @@ export function HomeScreen() {
           ListFooterComponent={
             products.length > 0 ? (
               <View style={styles.paginationFooter}>
-                {hasMore ? (
-                  <TouchableOpacity
-                    style={styles.loadMoreBtn}
-                    onPress={handleLoadMore}
-                    disabled={loadingMore}
-                    activeOpacity={0.8}
-                  >
-                    {loadingMore ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    ) : (
-                      <>
-                        <Text style={styles.loadMoreBtnText}>Load More Products</Text>
-                        <ChevronDown size={16} color="#ffffff" />
-                      </>
-                    )}
-                  </TouchableOpacity>
-                ) : (
+                {loadingMore ? (
+                  <View style={styles.inlineLoadingWrap}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={styles.inlineLoadingText}>Loading more products...</Text>
+                  </View>
+                ) : !hasMore ? (
                   <View style={styles.endOfResults}>
                     <View style={styles.endLine} />
                     <Text style={styles.endText}>Showing all {products.length} products</Text>
                     <View style={styles.endLine} />
                   </View>
-                )}
+                ) : null}
               </View>
             ) : null
           }
@@ -1239,6 +1229,18 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
+  },
+  inlineLoadingWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+  },
+  inlineLoadingText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
   },
   endOfResults: {
     flexDirection: 'row',
