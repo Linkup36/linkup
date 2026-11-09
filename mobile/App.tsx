@@ -2,6 +2,17 @@ import 'react-native-gesture-handler';
 import { enableScreens } from 'react-native-screens';
 enableScreens();
 
+// Intercept unhandled JS errors at runtime to prevent Android OS process crashes
+if (typeof (global as any).ErrorUtils !== 'undefined') {
+  const previousHandler = (global as any).ErrorUtils.getGlobalHandler();
+  (global as any).ErrorUtils.setGlobalHandler((error: any, isFatal?: boolean) => {
+    console.error('[GlobalErrorTrap] Intercepted runtime error:', error, 'isFatal:', isFatal);
+    if (__DEV__ && previousHandler) {
+      previousHandler(error, isFatal);
+    }
+  });
+}
+
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { StatusBar } from 'expo-status-bar';

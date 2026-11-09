@@ -6,11 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FDFEFE"
-    },
     "scheme": "linkup",
     "assetBundlePatterns": [
       "**/*"
@@ -42,14 +37,8 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.VIBRATE",
-        "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.RECORD_AUDIO"
-      ],
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyYOUR_GOOGLE_MAPS_API_KEY_HERE"
-        }
-      }
+      ]
     },
     "plugins": [
       [
@@ -65,10 +54,11 @@
         }
       ],
       [
-        "expo-notifications",
+        "expo-splash-screen",
         {
-          "icon": "./assets/icon.png",
-          "color": "#EB7D30"
+          "image": "./assets/splash.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FDFEFE"
         }
       ]
     ],

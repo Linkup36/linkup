@@ -109,15 +109,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // 1. Initial session retrieval
-    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
-      setSession(initialSession);
-      setUser(initialSession?.user ?? null);
-      if (initialSession?.user?.id) {
-        fetchProfileAndRoles(initialSession.user.id).finally(() => setLoading(false));
-      } else {
+    supabase.auth
+      .getSession()
+      .then(({ data: { session: initialSession } }) => {
+        setSession(initialSession);
+        setUser(initialSession?.user ?? null);
+        if (initialSession?.user?.id) {
+          fetchProfileAndRoles(initialSession.user.id).finally(() => setLoading(false));
+        } else {
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.warn('[AuthContext] Session retrieval error:', err);
         setLoading(false);
-      }
-    });
+      });
 
     // 2. Real-time auth state updates
     const {
