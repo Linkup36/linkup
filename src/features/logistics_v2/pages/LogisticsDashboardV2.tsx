@@ -38,12 +38,29 @@ export default function LogisticsDashboardV2() {
                 .eq("id", user?.id)
                 .maybeSingle();
 
+            // Fetch active deliveries count
+            const [shipmentsCount, sendOrdersCount] = await Promise.all([
+                (supabase as any)
+                    .from("shipments")
+                    .select("id", { count: "exact", head: true })
+                    .eq("rider_id", user?.id)
+                    .in("status", ["assigned", "picked_up", "in_transit"]),
+                (supabase as any)
+                    .from("send_orders")
+                    .select("id", { count: "exact", head: true })
+                    .eq("rider_id", user?.id)
+                    .in("status", ["assigned_rider", "pickup", "on_the_way"]),
+            ]);
+
+            const activeJobs = (shipmentsCount.count || 0) + (sendOrdersCount.count || 0);
+
             return {
                 balance: walletData?.balance || 0,
                 escrow_balance: walletData?.escrow_balance || 0,
                 is_online: profileData?.is_online || false,
                 city_id: profileData?.city_id,
-                zone_id: profileData?.zone_id
+                zone_id: profileData?.zone_id,
+                activeJobs,
             };
         },
         enabled: !!user,
@@ -196,9 +213,11 @@ export default function LogisticsDashboardV2() {
 
                         <div className="space-y-6">
                             <div className="flex items-center justify-between">
-                                <h2 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground pl-1">My Active Deliveries</h2>
+                                <h2 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground pl-1">
+                                    Mission Dispatch Radar
+                                </h2>
                             </div>
-                            <ShipmentFeedV2 defaultFilter="active" />
+                            <ShipmentFeedV2 defaultFilter="all" />
                         </div>
                     </div>
                 )}

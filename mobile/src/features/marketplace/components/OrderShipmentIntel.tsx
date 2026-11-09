@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Switch,
   Linking,
+  Alert,
   StyleSheet,
 } from 'react-native';
 import { MapPin, Phone, User, LocateFixed } from 'lucide-react-native';
@@ -25,16 +26,25 @@ export function OrderShipmentIntel({ shipment }: OrderShipmentIntelProps) {
   const [buyerCoords, setBuyerCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [isSharingLocation, setIsSharingLocation] = useState(false);
 
-  // Fetch rider profile
+  // Fetch rider profile with fallback for id/user_id
   const { data: riderProfile } = useQuery({
     queryKey: ['rider-profile', shipment?.rider_id],
     queryFn: async () => {
       if (!shipment?.rider_id) return null;
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
-        .select('display_name, full_name, avatar_url, phone')
+        .select('id, display_name, full_name, avatar_url, phone')
         .eq('id', shipment.rider_id)
         .maybeSingle();
+
+      if (error || !data) {
+        const { data: fallbackData } = await supabase
+          .from('profiles')
+          .select('id, display_name, full_name, avatar_url, phone')
+          .eq('user_id', shipment.rider_id)
+          .maybeSingle();
+        return fallbackData;
+      }
       return data;
     },
     enabled: !!shipment?.rider_id,
@@ -120,11 +130,22 @@ export function OrderShipmentIntel({ shipment }: OrderShipmentIntelProps) {
     };
   }, [isSharingLocation, shipment?.id]);
 
-  const handleCallRider = () => {
-    if (riderProfile?.phone) {
-      Linking.openURL(`tel:${riderProfile.phone}`);
-    } else {
-      toast.info('No phone number on record for this rider');
+  const handleCallRider = async () => {
+    if (!riderProfile?.phone) {
+      toast.info('No phone number on record for this courier');
+      return;
+    }
+    const cleanPhone = riderProfile.phone.replace(/[^0-9+]/g, '');
+    const url = `tel:${cleanPhone}`;
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert('Courier Contact', `Phone number: ${riderProfile.phone}`);
+      }
+    } catch {
+      Alert.alert('Courier Contact', `Phone number: ${riderProfile.phone}`);
     }
   };
 
@@ -137,26 +158,50 @@ export function OrderShipmentIntel({ shipment }: OrderShipmentIntelProps) {
       <LiveTrackingMap riderCoords={riderCoords} buyerCoords={buyerCoords} height={180} />
 
       {/* Courier Profile Bar */}
-      <View style={styles.courierBar}>
-        <View style={styles.courierLeft}>
-          {riderProfile?.avatar_url ? (
-            <Image source={{ uri: riderProfile.avatar_url }} style={styles.avatarImg} />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <User size={18} color="#ffffff" />
-            </View>
-          )}
-          <View>
-            <Text style={styles.courierSub}>VERIFIED DISPATCH</Text>
-            <Text style={styles.courierName}>{riderName}</Text>
+      {!shipment?.rider_id ? (
+        <View style={styles.awaitingBox}>
+          <View style={styles.awaitingDot} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.awaitingTitle}>Awaiting Courier Assignment</Text>
+            <Text style={styles.awaitingSub}>
+              A dispatch courier will be assigned to deliver this order shortly.
+            </Text>
           </View>
         </View>
+      ) : (
+        <View style={styles.courierBar}>
+          <View style={styles.courierLeft}>
+            {riderProfile?.avatar_url ? (
+              <Image source={{ uri: riderProfile.avatar_url }} style={styles.avatarImg} />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <User size={18} color="#ffffff" />
+              </View>
+            )}
+            <View style={{ flex: 1 }}>
+              <Text style={styles.courierSub}>VERIFIED DISPATCH</Text>
+              <Text style={styles.courierName}>{riderName}</Text>
+              {riderProfile?.phone ? (
+                <TouchableOpacity onPress={handleCallRider} activeOpacity={0.7} style={styles.phoneLinkWrap}>
+                  <Phone size={10} color={colors.primary} />
+                  <Text style={styles.courierPhone}>{riderProfile.phone}</Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={styles.noPhoneText}>No phone registered</Text>
+              )}
+            </View>
+          </View>
 
-        <TouchableOpacity style={styles.callBtn} onPress={handleCallRider} activeOpacity={0.8}>
-          <Phone size={15} color="#ffffff" />
-          <Text style={styles.callText}>Call Rider</Text>
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity 
+            style={[styles.callBtn, !riderProfile?.phone && styles.callBtnDisabled]} 
+            onPress={handleCallRider} 
+            activeOpacity={0.8}
+          >
+            <Phone size={14} color="#ffffff" />
+            <Text style={styles.callText}>Call Courier</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Live Buyer GPS Sharing Toggle */}
       <View style={styles.sharingRow}>
@@ -234,12 +279,59 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 10,
-    backgroundColor: colors.primary,
+    backgroundColor: '#16a34a',
+  },
+  callBtnDisabled: {
+    backgroundColor: '#94a3b8',
+    opacity: 0.6,
   },
   callText: {
     fontSize: 12,
     fontWeight: '800',
     color: '#ffffff',
+  },
+  phoneLinkWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  courierPhone: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  noPhoneText: {
+    fontSize: 10,
+    color: '#94a3b8',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  awaitingBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fef3c7',
+  },
+  awaitingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#d97706',
+  },
+  awaitingTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#92400e',
+  },
+  awaitingSub: {
+    fontSize: 11,
+    color: '#b45309',
+    marginTop: 1,
   },
   sharingRow: {
     flexDirection: 'row',

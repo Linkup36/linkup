@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface ProductGalleryProps {
   images: string[];
@@ -45,6 +46,30 @@ export function ProductGallery({
     }
   };
 
+  const handleShareProduct = async () => {
+    const url = typeof window !== "undefined" && window.location.hostname.includes("linkupng.com")
+      ? window.location.href
+      : `https://linkupng.com${window.location.pathname}${window.location.search}`;
+
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({
+          title: productTitle,
+          text: `Check out ${productTitle} on Linkup Marketplace!`,
+          url,
+        });
+        return;
+      } catch (err) {
+        // Fallback to clipboard if share was canceled or failed
+      }
+    }
+
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      await navigator.clipboard.writeText(url);
+      toast.success("Product link copied to clipboard!");
+    }
+  };
+
   return (
     <m.div
       className="relative lg:h-fit"
@@ -60,7 +85,11 @@ export function ProductGallery({
           <ArrowLeft size={20} />
         </button>
 
-        <button aria-label="Share product" className="absolute top-4 right-4 z-20 bg-foreground/20 backdrop-blur-xl p-2.5 rounded-xl text-card hover:bg-foreground/40 transition-all border border-card/10 shadow-lg focus-visible:ring-2 focus-visible:ring-ring">
+        <button
+          onClick={handleShareProduct}
+          aria-label="Share product"
+          className="absolute top-4 right-4 z-20 bg-foreground/20 backdrop-blur-xl p-2.5 rounded-xl text-card hover:bg-foreground/40 transition-all border border-card/10 shadow-lg focus-visible:ring-2 focus-visible:ring-ring"
+        >
           <Share2 size={20} />
         </button>
 

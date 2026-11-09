@@ -245,6 +245,24 @@ export function AdminDashboardScreen() {
               <TouchableOpacity
                 style={styles.menuTriggerBtn}
                 onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  if (navigation.canGoBack()) {
+                    navigation.goBack();
+                  } else {
+                    navigation.navigate('MainTabs');
+                  }
+                }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
+              >
+                <ArrowLeft size={20} color="#0F172A" strokeWidth={2.4} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.menuTriggerBtn}
+                onPress={() => {
                   Haptics.selectionAsync();
                   setIsSidebarOpen((prev) => !prev);
                 }}

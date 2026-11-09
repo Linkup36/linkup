@@ -111,7 +111,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // 1. Initial session retrieval
     supabase.auth
       .getSession()
-      .then(({ data: { session: initialSession } }) => {
+      .then(async ({ data, error }) => {
+        if (error) {
+          console.warn('[AuthContext] Session retrieval error, resetting local auth:', error.message);
+          await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+          setSession(null);
+          setUser(null);
+          setProfile(null);
+          setRoles([]);
+          setLoading(false);
+          return;
+        }
+
+        const initialSession = data?.session ?? null;
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
         if (initialSession?.user?.id) {
@@ -120,24 +132,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setLoading(false);
         }
       })
-      .catch((err) => {
-        console.warn('[AuthContext] Session retrieval error:', err);
+      .catch(async (err) => {
+        console.warn('[AuthContext] Session retrieval exception:', err);
+        await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
         setLoading(false);
       });
 
     // 2. Real-time auth state updates
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, currentSession) => {
-      setSession(currentSession);
-      setUser(currentSession?.user ?? null);
-
-      if (currentSession?.user?.id) {
-        await fetchProfileAndRoles(currentSession.user.id);
-      } else {
+    } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      if (event === 'SIGNED_OUT' || !currentSession) {
+        setSession(null);
+        setUser(null);
         setProfile(null);
         setRoles([]);
         setActiveRoleState(null);
+        setLoading(false);
+        return;
+      }
+
+      setSession(currentSession);
+      setUser(currentSession.user ?? null);
+
+      if (currentSession.user?.id) {
+        await fetchProfileAndRoles(currentSession.user.id);
       }
       setLoading(false);
     });

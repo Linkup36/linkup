@@ -106,7 +106,7 @@ export default function Auth() {
         }
 
         if (userRoles.includes("admin")) {
-          navigate("/admin");
+          navigate("/admin-auth");
         } else if (userRoles.includes("logistics")) {
           navigate("/logistics");
         } else if (userRoles.includes("seller")) {

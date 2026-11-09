@@ -1,4 +1,4 @@
-import { MapPin, LocateFixed } from "lucide-react";
+import { MapPin, LocateFixed, Phone } from "lucide-react";
 import { Badge } from "@/shared/components/ui/badge";
 import { Avatar, AvatarImage, AvatarFallback } from "@/shared/components/ui/avatar";
 import { Button } from "@/shared/components/ui/button";
@@ -17,17 +17,25 @@ interface OrderShipmentIntelProps {
 export function OrderShipmentIntel({ shipment }: OrderShipmentIntelProps) {
     const [riderCoords, setRiderCoords] = useState<{ lat: number, lng: number } | null>(null);
 
-    // Fetch rider profile separately
+    // Fetch rider profile separately with primary key fallback
     const { data: riderProfile } = useQuery({
         queryKey: ["rider-profile", shipment?.rider_id],
         queryFn: async () => {
             if (!shipment?.rider_id) return null;
             const { data, error } = await supabase
                 .from("profiles")
-                .select("display_name, avatar_url, phone")
-                .eq("user_id", shipment.rider_id)
-                .single();
-            if (error) return null;
+                .select("id, display_name, avatar_url, phone")
+                .eq("id", shipment.rider_id)
+                .maybeSingle();
+
+            if (error || !data) {
+                const { data: fallbackData } = await supabase
+                    .from("profiles")
+                    .select("id, display_name, avatar_url, phone")
+                    .eq("user_id", shipment.rider_id)
+                    .maybeSingle();
+                return fallbackData;
+            }
             return data;
         },
         enabled: !!shipment?.rider_id,
@@ -131,22 +139,65 @@ export function OrderShipmentIntel({ shipment }: OrderShipmentIntelProps) {
                     <Badge variant="outline" className="font-mono text-[10px] border-border/50 bg-muted/30">{shipment.tracking_code}</Badge>
                 </div>
 
-                {riderProfile && (
-                    <div className="flex items-center gap-3">
-                        <Avatar className="h-10 w-10 rounded-lg border-2 border-primary/10">
+                {!shipment.rider_id ? (
+                    <div className="p-3.5 rounded-xl bg-amber-50/60 border border-amber-200/60 flex items-center gap-3">
+                        <div className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                        <div>
+                            <p className="text-[10px] font-black uppercase tracking-wider text-amber-800">Awaiting Courier Assignment</p>
+                            <p className="text-[11px] text-amber-700 font-medium">A dispatch rider will be assigned to fulfill this delivery shortly.</p>
+                        </div>
+                    </div>
+                ) : riderProfile ? (
+                    <div className="flex items-center gap-3 p-2 rounded-xl bg-muted/20 border border-border/40">
+                        <Avatar className="h-11 w-11 rounded-lg border-2 border-primary/20 shrink-0">
                             <AvatarImage src={riderProfile.avatar_url || ""} />
-                            <AvatarFallback className="bg-primary/5 text-primary text-xs font-black">
+                            <AvatarFallback className="bg-primary/10 text-primary text-xs font-black">
                                 {riderProfile.display_name?.[0]?.toUpperCase() || "R"}
                             </AvatarFallback>
                         </Avatar>
-                        <div className="flex-1">
-                            <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest leading-none mb-1">Authenticated Rider</p>
-                            <p className="text-[13px] font-black text-foreground">{riderProfile.display_name || "Agent Assigned"}</p>
-                            {riderProfile.phone && (
-                                <p className="text-[10px] text-muted-foreground font-medium">{riderProfile.phone}</p>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest leading-none mb-1">Authenticated Courier</p>
+                            <p className="text-[13px] font-black text-foreground truncate">{riderProfile.display_name || "Assigned Courier"}</p>
+                            {riderProfile.phone ? (
+                                <a 
+                                    href={`tel:${riderProfile.phone.replace(/[^0-9+]/g, '')}`} 
+                                    className="text-[11px] text-primary hover:underline font-bold inline-flex items-center gap-1 mt-0.5"
+                                    title="Click to dial courier"
+                                >
+                                    <Phone size={10} className="text-emerald-600" />
+                                    <span>{riderProfile.phone}</span>
+                                </a>
+                            ) : (
+                                <p className="text-[10px] text-muted-foreground italic">No phone number on file</p>
                             )}
                         </div>
-                        <Button size="sm" className="rounded-full h-7 text-[9px] font-black px-3 bg-muted hover:bg-muted/80 text-foreground transition-colors">Call</Button>
+                        {riderProfile.phone ? (
+                            <Button
+                                size="sm"
+                                asChild
+                                className="rounded-full h-8 text-[11px] font-black px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shrink-0"
+                            >
+                                <a href={`tel:${riderProfile.phone.replace(/[^0-9+]/g, '')}`}>
+                                    <Phone size={13} strokeWidth={2.5} />
+                                    <span>Call Courier</span>
+                                </a>
+                            </Button>
+                        ) : (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => toast.info("Courier phone number is not available on their profile.")}
+                                className="rounded-full h-8 text-[10px] font-bold px-3 text-muted-foreground border-border/60 shrink-0"
+                            >
+                                <Phone size={12} className="mr-1 opacity-50" />
+                                <span>No Phone</span>
+                            </Button>
+                        )}
+                    </div>
+                ) : (
+                    <div className="p-3 rounded-lg bg-muted/40 flex items-center gap-2">
+                        <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                        <p className="text-xs text-muted-foreground">Loading courier details...</p>
                     </div>
                 )}
             </div>

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/features/auth/context/AuthContext";
@@ -16,6 +16,10 @@ export function ShipmentFeedV2({ defaultFilter = "all" }: { defaultFilter?: stri
     const [filterStatus, setFilterStatus] = useState(defaultFilter);
     const [selectedShipment, setSelectedShipment] = useState<any>(null);
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+
+    useEffect(() => {
+        setFilterStatus(defaultFilter);
+    }, [defaultFilter]);
 
     const statusFilters = [
         { label: "All", value: "all" },
@@ -36,9 +40,7 @@ export function ShipmentFeedV2({ defaultFilter = "all" }: { defaultFilter?: stri
                     *,
                     order:orders (
                         *,
-                        order_recipient (*),
-                        buyer:profiles!buyer_id (*),
-                        seller:profiles!seller_id (*)
+                        order_recipient (*)
                     )
                 `)
                 .eq("rider_id", user.id);
@@ -86,40 +88,120 @@ export function ShipmentFeedV2({ defaultFilter = "all" }: { defaultFilter?: stri
             // 2. Fetch Unassigned Broadcast Missions (Source: Orders Table)
             let broadcastData: any[] = [];
             if (filterStatus === "all" || filterStatus === "pending") {
-                const { data: orderMissions, error: orderError } = await (supabase as any)
+                let orderMissions: any[] = [];
+                const { data: oData, error: orderError } = await (supabase as any)
                     .from("orders")
                     .select(`
                         *,
                         order_recipient (*),
-                        buyer:profiles!buyer_id (*), 
-                        seller:profiles!seller_id (*),
                         shipments (*)
                     `)
                     .eq("status", "awaiting_agent")
                     .order("created_at", { ascending: false });
 
-                if (!orderError && orderMissions) {
-                    // Transform Orders into Mission Feed format
+                if (orderError) {
+                    console.warn("[ShipmentFeedV2] orderMissions error:", orderError);
+                } else if (oData) {
+                    orderMissions = oData;
+                }
+
+                // Fetch seller details cleanly
+                const sellerIds = Array.from(
+                    new Set(orderMissions.map((o: any) => o.seller_id).filter(Boolean))
+                );
+                let sellerMap = new Map();
+                if (sellerIds.length > 0) {
+                    const { data: sellers } = await supabase
+                        .from("profiles")
+                        .select("id, display_name, phone, address, avatar_url")
+                        .in("id", sellerIds);
+                    if (sellers) {
+                        sellerMap = new Map(sellers.map((s) => [s.id, s]));
+                    }
+                }
+
+                if (orderMissions && orderMissions.length > 0) {
                     broadcastData = orderMissions.map((o: any) => {
                         const shipment = o.shipments?.[0];
                         const earnings = calculateRiderEarnings(shipment || o, { payoutRate: riderPayoutRate, minPayout: riderMinPayout });
+                        const recipient = Array.isArray(o.order_recipient)
+                            ? o.order_recipient[0]
+                            : o.order_recipient;
+                        const sellerProf = sellerMap.get(o.seller_id) || {};
+
                         return {
                             ...(shipment || {}),
-                            // id: prefer real shipment id, fall back to order id so the card renders
                             id: shipment?.id || o.id,
-                            // Always carry the real order_id so claim_order_mission gets the right value
                             order_id: o.id,
+                            status: shipment?.status || "awaiting_agent",
                             order: o,
-                            seller: o.seller,
-                            buyer: o.buyer,
-                            pickup_address: shipment?.pickup_address || o.seller?.address,
+                            seller: sellerProf,
+                            buyer: recipient || {},
+                            pickup_address:
+                                shipment?.pickup_address ||
+                                o.pickup_address ||
+                                sellerProf.address ||
+                                "Merchant Store / Pickup",
                             delivery_address:
                                 shipment?.delivery_address ||
-                                o.order_recipient?.[0]?.address_line ||
-                                o.buyer?.address,
+                                recipient?.address_line ||
+                                o.delivery_address ||
+                                "Customer Delivery Point",
+                            delivery_fee: shipment?.delivery_fee || o.shipping_fee || 1500,
                             rider_earnings: earnings,
                         };
                     });
+                }
+
+                // Also query pending unassigned shipments directly (guarantees coverage if order status differs)
+                try {
+                    const { data: pendingShipments, error: pendingShipmentsError } = await (supabase as any)
+                        .from("shipments")
+                        .select(`
+                            *,
+                            order:orders (
+                                *,
+                                order_recipient (*)
+                            )
+                        `)
+                        .is("rider_id", null)
+                        .eq("status", "pending")
+                        .order("created_at", { ascending: false });
+
+                    if (!pendingShipmentsError && pendingShipments && pendingShipments.length > 0) {
+                        const directMissions = pendingShipments
+                            .filter((s: any) => !broadcastData.some((b: any) => b.order_id === s.order_id || b.id === s.id))
+                            .map((s: any) => {
+                                const o = s.order || {};
+                                const earnings = calculateRiderEarnings(s, { payoutRate: riderPayoutRate, minPayout: riderMinPayout });
+                                const recipient = Array.isArray(o.order_recipient)
+                                    ? o.order_recipient[0]
+                                    : o.order_recipient;
+                                const sellerProf = sellerMap.get(s.seller_id || o.seller_id) || s.seller || {};
+                                return {
+                                    ...s,
+                                    id: s.id,
+                                    order_id: s.order_id || o.id,
+                                    status: s.status || "pending",
+                                    order: o,
+                                    seller: sellerProf,
+                                    buyer: recipient || s.buyer || {},
+                                    pickup_address:
+                                        s.pickup_address ||
+                                        sellerProf.address ||
+                                        "Merchant Store / Pickup",
+                                    delivery_address:
+                                        s.delivery_address ||
+                                        recipient?.address_line ||
+                                        "Customer Delivery Point",
+                                    delivery_fee: s.delivery_fee || o.shipping_fee || 1500,
+                                    rider_earnings: earnings,
+                                };
+                            });
+                        broadcastData.push(...directMissions);
+                    }
+                } catch (directShipErr) {
+                    console.warn("[ShipmentFeedV2] direct pending shipments error:", directShipErr);
                 }
 
                 // 2b. Fetch Unassigned SEND Package Orders

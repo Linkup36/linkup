@@ -716,7 +716,11 @@ export function HomeScreen() {
               userLocation={userLocation}
               isLiked={userLikes.has(item.id)}
               onPress={() =>
-                navigation.navigate('ProductDetail', { id: item.id, title: item.title })
+                navigation.navigate('ProductDetail', {
+                  id: item.id,
+                  title: item.title,
+                  initialProduct: item,
+                })
               }
               onLike={handleToggleLike}
               onAddToCart={() => addToCart(item.id, 1)}

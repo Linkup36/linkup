@@ -225,7 +225,7 @@ export function LogisticsLayoutV2({ children, activeTab, onTabChange, balance = 
                                                 isOnline ? "bg-emerald-500 ring-2 ring-emerald-200 animate-pulse" : "bg-gray-300"
                                             )} />
                                             <p className="text-xs font-black text-foreground tracking-tight uppercase leading-tight group-hover:text-[#E96F28] transition-colors">
-                                                {profile?.display_name || profile?.name || "Oga Rider"}
+                                                {profile?.display_name || (profile as any)?.name || "Oga Rider"}
                                             </p>
                                         </div>
                                         <p className={cn(
@@ -241,7 +241,7 @@ export function LogisticsLayoutV2({ children, activeTab, onTabChange, balance = 
                                     <Avatar className="h-9 w-9 border border-black/[0.06] shadow-sm group-hover:scale-105 transition-transform">
                                         <AvatarImage src={profile?.avatar_url || ""} />
                                         <AvatarFallback className="bg-[#FFF7F2] text-[#E96F28] font-bold text-xs">
-                                            {(profile?.display_name || profile?.name || "U").charAt(0).toUpperCase()}
+                                            {(profile?.display_name || (profile as any)?.name || "U").charAt(0).toUpperCase()}
                                         </AvatarFallback>
                                     </Avatar>
 
@@ -260,7 +260,7 @@ export function LogisticsLayoutV2({ children, activeTab, onTabChange, balance = 
                                         <Avatar className="h-12 w-12 border-2 border-primary/20 shadow-sm transition-transform group-hover:scale-105">
                                             <AvatarImage src={profile?.avatar_url || ""} />
                                             <AvatarFallback className="bg-[#FFF7F2] text-[#E96F28] font-black text-sm">
-                                                {(profile?.display_name || profile?.name || "U").charAt(0).toUpperCase()}
+                                                {(profile?.display_name || (profile as any)?.name || "U").charAt(0).toUpperCase()}
                                             </AvatarFallback>
                                         </Avatar>
                                         <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
@@ -269,7 +269,7 @@ export function LogisticsLayoutV2({ children, activeTab, onTabChange, balance = 
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-black text-foreground tracking-tight truncate uppercase">
-                                            {profile?.display_name || profile?.name || "Oga Rider"}
+                                            {profile?.display_name || (profile as any)?.name || "Oga Rider"}
                                         </p>
                                         <p className="text-[11px] text-muted-foreground truncate">{user?.email || "Rider Partner"}</p>
                                         <button

@@ -224,7 +224,14 @@ export function SellerSidebar({
           {/* Footer Actions */}
           <View style={styles.footer}>
             {onExitToStore && (
-              <TouchableOpacity style={styles.exitBtn} onPress={onExitToStore} activeOpacity={0.8}>
+              <TouchableOpacity
+                style={styles.exitBtn}
+                onPress={() => {
+                  onClose();
+                  onExitToStore();
+                }}
+                activeOpacity={0.8}
+              >
                 <Store size={16} color="#0f172a" />
                 <Text style={styles.exitBtnText}>Back to Marketplace</Text>
               </TouchableOpacity>

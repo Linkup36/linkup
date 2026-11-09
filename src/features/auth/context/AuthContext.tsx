@@ -100,7 +100,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const initializeAuth = async () => {
       try {
-        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          console.warn("[Auth] Invalid session detected, clearing local auth:", error.message);
+          await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+          if (mounted) {
+            setSession(null);
+            setUser(null);
+            setProfile(null);
+            setRoles([]);
+            setLoading(false);
+          }
+          return;
+        }
+
+        const initialSession = data?.session ?? null;
         if (!mounted) return;
 
         setSession(initialSession);
@@ -110,7 +124,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await fetchProfileAndRoles(initialSession.user.id);
         }
       } catch (err) {
-        console.error("Auth Init Error:", err);
+        console.warn("[Auth] Auth Init Error, clearing local session:", err);
+        await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+        if (mounted) {
+          setSession(null);
+          setUser(null);
+          setProfile(null);
+          setRoles([]);
+        }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -122,10 +143,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async (event, currentSession) => {
         if (!mounted) return;
 
-        setSession(currentSession);
-        setUser(currentSession?.user ?? null);
+        if (event === 'SIGNED_OUT' || !currentSession) {
+          setSession(null);
+          setUser(null);
+          setProfile(null);
+          setRoles([]);
+          setLoading(false);
+          return;
+        }
 
-        if (currentSession?.user) {
+        setSession(currentSession);
+        setUser(currentSession.user ?? null);
+
+        if (currentSession.user) {
           if (['SIGNED_IN', 'TOKEN_REFRESHED', 'USER_UPDATED'].includes(event)) {
             // Non-blocking profile fetch
             setTimeout(() => fetchProfileAndRoles(currentSession.user.id), 0);

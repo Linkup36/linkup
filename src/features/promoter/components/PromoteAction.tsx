@@ -14,7 +14,10 @@ interface PromoteActionProps {
 export function PromoteAction({ productId, productTitle, promoterCode }: PromoteActionProps) {
   const [isOpen, setIsOpen] = useState(false);
   
-  const referralLink = `${window.location.origin}/product/${productId}?ref=${promoterCode}`;
+  const baseUrl = typeof window !== "undefined" && window.location.hostname.includes("linkupng.com")
+    ? window.location.origin
+    : "https://linkupng.com";
+  const referralLink = `${baseUrl}/product/${productId}?ref=${promoterCode}`;
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(referralLink);

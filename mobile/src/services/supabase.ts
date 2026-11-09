@@ -20,11 +20,18 @@ export const supabase = createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY, {
  * Helper to fetch a fresh JWT access token for authenticating Supabase Edge Functions.
  */
 export async function getFreshAccessToken(): Promise<string | null> {
-  const { data, error } = await supabase.auth.getSession();
-  if (error || !data.session) {
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error || !data.session) {
+      if (error && (error.message?.includes('Refresh Token') || error.message?.includes('refresh_token'))) {
+        await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+      }
+      return null;
+    }
+    return data.session.access_token;
+  } catch {
     return null;
   }
-  return data.session.access_token;
 }
 
 /**

@@ -39,6 +39,66 @@ export function AdminKycTab() {
   const [loading, setLoading] = useState(true);
   const [selectedKyc, setSelectedKyc] = useState<any>(null);
   const [processingStatus, setProcessingStatus] = useState(false);
+  const [signedUrls, setSignedUrls] = useState<{ [key: string]: string }>({});
+  const [loadingDocUrls, setLoadingDocUrls] = useState(false);
+
+  // Resolve signed storage URLs whenever a KYC item is selected
+  useEffect(() => {
+    async function resolveDocUrls() {
+      if (!selectedKyc) {
+        setSignedUrls({});
+        return;
+      }
+      setLoadingDocUrls(true);
+      const paths: { key: string; path: string }[] = [];
+
+      if (selectedKyc.kyc_type === 'seller') {
+        if (selectedKyc.national_id_url) {
+          paths.push({ key: 'doc1', path: selectedKyc.national_id_url });
+        }
+        if (selectedKyc.store_photo_url) {
+          paths.push({ key: 'doc2', path: selectedKyc.store_photo_url });
+        }
+      } else {
+        if (selectedKyc.passport_photo_url) {
+          paths.push({ key: 'doc1', path: selectedKyc.passport_photo_url });
+        }
+        if (selectedKyc.id_card_photo_url) {
+          paths.push({ key: 'doc2', path: selectedKyc.id_card_photo_url });
+        }
+      }
+
+      const resolved: { [key: string]: string } = {};
+      for (const item of paths) {
+        if (item.path.startsWith('http://') || item.path.startsWith('https://')) {
+          resolved[item.key] = item.path;
+        } else {
+          try {
+            const { data: signedData } = await supabase.storage
+              .from('kyc-documents')
+              .createSignedUrl(item.path, 3600);
+            if (signedData?.signedUrl) {
+              resolved[item.key] = signedData.signedUrl;
+            } else {
+              const { data: pubData } = supabase.storage
+                .from('kyc-documents')
+                .getPublicUrl(item.path);
+              if (pubData?.publicUrl) resolved[item.key] = pubData.publicUrl;
+            }
+          } catch {
+            const { data: pubData } = supabase.storage
+              .from('kyc-documents')
+              .getPublicUrl(item.path);
+            if (pubData?.publicUrl) resolved[item.key] = pubData.publicUrl;
+          }
+        }
+      }
+      setSignedUrls(resolved);
+      setLoadingDocUrls(false);
+    }
+
+    resolveDocUrls();
+  }, [selectedKyc]);
 
   const fetchKycData = async () => {
     try {
@@ -349,16 +409,44 @@ export function AdminKycTab() {
             {/* Submission metadata */}
             <View style={styles.detailSection}>
               <Text style={styles.detailSectionTitle}>Application Details</Text>
-              {selectedKyc.business_name && (
+              {(selectedKyc.full_name || selectedKyc.business_name) && (
                 <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Business Name</Text>
-                  <Text style={styles.detailValue}>{selectedKyc.business_name}</Text>
+                  <Text style={styles.detailLabel}>
+                    {selectedKyc.kyc_type === 'seller' ? 'Business / Store Name' : 'Full Legal Name'}
+                  </Text>
+                  <Text style={styles.detailValue}>
+                    {selectedKyc.business_name || selectedKyc.full_name}
+                  </Text>
                 </View>
               )}
-              {selectedKyc.business_address && (
+              {(selectedKyc.phone_number || selectedKyc.profile?.phone) && (
                 <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Address</Text>
-                  <Text style={styles.detailValue}>{selectedKyc.business_address}</Text>
+                  <Text style={styles.detailLabel}>Contact Phone</Text>
+                  <Text style={styles.detailValue}>
+                    {selectedKyc.phone_number || selectedKyc.profile?.phone}
+                  </Text>
+                </View>
+              )}
+              {(selectedKyc.business_address || selectedKyc.home_address) && (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>
+                    {selectedKyc.kyc_type === 'seller' ? 'Store Location' : 'Residential Address'}
+                  </Text>
+                  <Text style={styles.detailValue}>
+                    {selectedKyc.business_address || selectedKyc.home_address}
+                  </Text>
+                </View>
+              )}
+              {selectedKyc.nin_number && (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>NIN / ID Number</Text>
+                  <Text style={styles.detailValue}>{selectedKyc.nin_number}</Text>
+                </View>
+              )}
+              {selectedKyc.driver_license_number && (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Driver License</Text>
+                  <Text style={styles.detailValue}>{selectedKyc.driver_license_number}</Text>
                 </View>
               )}
               {selectedKyc.vehicle_type && (
@@ -375,18 +463,46 @@ export function AdminKycTab() {
               )}
             </View>
 
-            {/* Document Preview */}
+            {/* Document Preview (Dual-Document Display) */}
             <View style={styles.detailSection}>
-              <Text style={styles.detailSectionTitle}>Uploaded Identity Proof</Text>
-              {selectedKyc.national_id_url || selectedKyc.passport_photo_url ? (
-                <View style={styles.docImgWrap}>
-                  <Image
-                    source={{
-                      uri: selectedKyc.national_id_url || selectedKyc.passport_photo_url,
-                    }}
-                    style={styles.docImg}
-                    resizeMode="cover"
-                  />
+              <Text style={styles.detailSectionTitle}>Uploaded Identity Documents</Text>
+              {loadingDocUrls ? (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={{ fontSize: 11, color: '#64748B', marginTop: 6, fontWeight: '700' }}>
+                    Loading document images...
+                  </Text>
+                </View>
+              ) : signedUrls.doc1 || signedUrls.doc2 ? (
+                <View style={{ gap: 14 }}>
+                  {signedUrls.doc1 && (
+                    <View>
+                      <Text style={{ fontSize: 10, fontWeight: '900', color: '#64748B', letterSpacing: 0.5, marginBottom: 6 }}>
+                        {selectedKyc.kyc_type === 'seller' ? 'NATIONAL ID / CAC DOCUMENT' : 'PASSPORT PHOTOGRAPH'}
+                      </Text>
+                      <View style={styles.docImgWrap}>
+                        <Image
+                          source={{ uri: signedUrls.doc1 }}
+                          style={styles.docImg}
+                          resizeMode="cover"
+                        />
+                      </View>
+                    </View>
+                  )}
+                  {signedUrls.doc2 && (
+                    <View>
+                      <Text style={{ fontSize: 10, fontWeight: '900', color: '#64748B', letterSpacing: 0.5, marginBottom: 6 }}>
+                        {selectedKyc.kyc_type === 'seller' ? 'STOREFRONT / MERCHANDISE PHOTO' : 'NIN / VOTER’S CARD / LICENSE'}
+                      </Text>
+                      <View style={styles.docImgWrap}>
+                        <Image
+                          source={{ uri: signedUrls.doc2 }}
+                          style={styles.docImg}
+                          resizeMode="cover"
+                        />
+                      </View>
+                    </View>
+                  )}
                 </View>
               ) : (
                 <View style={styles.emptyDocBox}>

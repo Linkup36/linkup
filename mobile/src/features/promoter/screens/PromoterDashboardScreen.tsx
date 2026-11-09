@@ -740,7 +740,13 @@ export function PromoterDashboardScreen() {
                       key={p.id}
                       style={styles.productCard}
                       activeOpacity={0.9}
-                      onPress={() => navigation.navigate('ProductDetail', { id: p.id, title: p.title })}
+                      onPress={() =>
+                        navigation.navigate('ProductDetail', {
+                          id: p.id,
+                          title: p.title,
+                          initialProduct: p,
+                        })
+                      }
                     >
                       {/* Product Image */}
                       <View style={styles.imageWrap}>

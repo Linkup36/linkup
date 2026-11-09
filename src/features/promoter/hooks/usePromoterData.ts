@@ -42,8 +42,8 @@ export function usePromoterData() {
     queryKey: ["commissions", user?.id],
     queryFn: async () => {
       if (!user) return [];
-      const { data, error } = await supabase
-        .from("order_settlements")
+      const { data, error } = await (supabase
+        .from("order_settlements" as any)
         .select(`
           id,
           promoter_amount,
@@ -55,7 +55,7 @@ export function usePromoterData() {
         .eq("orders.promoter_id", user.id)
         .gt("promoter_amount", 0)
         .order("created_at", { ascending: false })
-        .limit(50);
+        .limit(50) as any);
 
       if (error) {
         console.error("[PromoterDebug] Error fetching order_settlements:", error);
@@ -167,17 +167,32 @@ export function usePromoterData() {
     };
   }, [user, queryClient]);
 
-  // Marketplace Products
+  // Marketplace Products with Platform Fee Applied
   const { data: products = [], isLoading: productsLoading } = useQuery({
     queryKey: ["promoter-marketplace"],
     queryFn: async () => {
-      const { data } = await (supabase
-        .from("products" as any)
-        .select("id, title, price, images, description, inventory")
-        .gt("inventory", 0)
-        .order("created_at", { ascending: false })
-        .limit(20) as any);
-      return data ?? [];
+      const [productsRes, feeRes] = await Promise.all([
+        supabase
+          .from("products" as any)
+          .select("id, title, price, images, description, inventory")
+          .gt("inventory", 0)
+          .order("created_at", { ascending: false })
+          .limit(500) as any,
+        supabase
+          .from("fee_config" as any)
+          .select("*")
+          .eq("is_active", true) as any,
+      ]);
+
+      const prodFee = (feeRes.data || []).find((f: any) => f.fee_type === "platform_product" || f.fee_type === "platform");
+      const markupRate = prodFee?.rate ?? 0.10;
+      const multiplier = 1 + markupRate;
+
+      return (productsRes.data ?? []).map((p: any) => ({
+        ...p,
+        raw_price: p.price,
+        price: Math.round(p.price * multiplier),
+      }));
     },
   });
 

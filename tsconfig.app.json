@@ -35,5 +35,10 @@
   },
   "include": [
     "src"
+  ],
+  "exclude": [
+    "mobile",
+    "node_modules",
+    "dist"
   ]
 }

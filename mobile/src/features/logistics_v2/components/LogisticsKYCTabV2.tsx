@@ -9,6 +9,8 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  Image,
+  Alert,
 } from 'react-native';
 import {
   ShieldCheck,
@@ -22,7 +24,13 @@ import {
   Truck,
   CheckCircle2,
   MapPin,
+  Camera,
+  ImagePlus,
+  X,
+  Upload,
+  RefreshCw,
 } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { colors } from '../../../theme/colors';
 import { toast } from '../../../components/ui/GooeyToast';
@@ -41,6 +49,7 @@ export function LogisticsKYCTabV2() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [kycStatus, setKycStatus] = useState<string>('none');
+  const [kycRecord, setKycRecord] = useState<any>(null);
 
   // Form State
   const [fullName, setFullName] = useState(profile?.display_name || profile?.full_name || '');
@@ -52,9 +61,35 @@ export function LogisticsKYCTabV2() {
   const [vehicleType, setVehicleType] = useState('motorcycle');
   const [plateNumber, setPlateNumber] = useState('');
 
+  // Operational Territory State
+  const [cities, setCities] = useState<any[]>([]);
+  const [zones, setZones] = useState<any[]>([]);
+  const [cityId, setCityId] = useState(profile?.city_id || '');
+  const [zoneId, setZoneId] = useState(profile?.zone_id || '');
+
+  // Document Photos State (local uri or existing remote path)
+  const [passportUri, setPassportUri] = useState<string | null>(null);
+  const [idCardUri, setIdCardUri] = useState<string | null>(null);
+
   const fetchKycData = async () => {
     if (!user) return;
     try {
+      // 1. Fetch cities and delivery zones
+      const [citiesRes, zonesRes] = await Promise.all([
+        supabase.from('cities').select('*').order('name'),
+        supabase.from('delivery_zones').select('*').order('name'),
+      ]);
+
+      if (citiesRes.data) setCities(citiesRes.data);
+      if (zonesRes.data) setZones(zonesRes.data);
+
+      // Default to Abuja if available and no city selected
+      if (citiesRes.data && citiesRes.data.length > 0 && !cityId) {
+        const abuja = citiesRes.data.find((c: any) => c.name.toLowerCase() === 'abuja');
+        if (abuja) setCityId(abuja.id);
+      }
+
+      // 2. Fetch existing KYC submission
       const { data } = await (supabase as any)
         .from('logistics_kyc')
         .select('*')
@@ -64,6 +99,7 @@ export function LogisticsKYCTabV2() {
         .maybeSingle();
 
       if (data) {
+        setKycRecord(data);
         setKycStatus(data.status?.trim()?.toLowerCase() || 'pending');
         if (data.full_name) setFullName(data.full_name);
         if (data.phone_number) setPhone(data.phone_number);
@@ -73,6 +109,22 @@ export function LogisticsKYCTabV2() {
         if (data.driver_license_number) setDriverLicenseNumber(data.driver_license_number);
         if (data.vehicle_type) setVehicleType(data.vehicle_type);
         if (data.plate_number) setPlateNumber(data.plate_number);
+        if (data.city_id) setCityId(data.city_id);
+        if (data.zone_id) setZoneId(data.zone_id);
+
+        // Preload photo previews if existing
+        if (data.passport_photo_url) {
+          const { data: pubData } = supabase.storage
+            .from('kyc-documents')
+            .getPublicUrl(data.passport_photo_url);
+          if (pubData?.publicUrl) setPassportUri(pubData.publicUrl);
+        }
+        if (data.id_card_photo_url) {
+          const { data: pubData } = supabase.storage
+            .from('kyc-documents')
+            .getPublicUrl(data.id_card_photo_url);
+          if (pubData?.publicUrl) setIdCardUri(pubData.publicUrl);
+        }
       }
     } catch (err) {
       console.warn('[LogisticsKYCTabV2] fetch error:', err);
@@ -84,6 +136,73 @@ export function LogisticsKYCTabV2() {
   useEffect(() => {
     fetchKycData();
   }, [user]);
+
+  // Image Picking
+  const pickImage = async (type: 'passport' | 'id_card', fromCamera: boolean) => {
+    try {
+      Haptics.selectionAsync().catch(() => {});
+      if (fromCamera) {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          toast.error('Camera permission is required');
+          return;
+        }
+        const result = await ImagePicker.launchCameraAsync({
+          quality: 0.8,
+          allowsEditing: true,
+          aspect: type === 'passport' ? [1, 1] : [16, 10],
+        });
+        if (!result.canceled && result.assets?.[0]?.uri) {
+          if (type === 'passport') setPassportUri(result.assets[0].uri);
+          else setIdCardUri(result.assets[0].uri);
+        }
+      } else {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          toast.error('Gallery access is required');
+          return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.8,
+          allowsEditing: true,
+          aspect: type === 'passport' ? [1, 1] : [16, 10],
+        });
+        if (!result.canceled && result.assets?.[0]?.uri) {
+          if (type === 'passport') setPassportUri(result.assets[0].uri);
+          else setIdCardUri(result.assets[0].uri);
+        }
+      }
+    } catch (err: any) {
+      toast.error('Could not select image: ' + err.message);
+    }
+  };
+
+  const uploadKycFile = async (localUri: string, prefix: string): Promise<string> => {
+    // If it's already a remote URL (from previous upload), retain original path
+    if (localUri.startsWith('http://') || localUri.startsWith('https://')) {
+      if (prefix === 'passport' && kycRecord?.passport_photo_url) {
+        return kycRecord.passport_photo_url;
+      }
+      if (prefix === 'id_card' && kycRecord?.id_card_photo_url) {
+        return kycRecord.id_card_photo_url;
+      }
+    }
+
+    const ext = localUri.split('.').pop()?.toLowerCase() || 'jpg';
+    const cleanExt = ext === 'png' ? 'png' : 'jpeg';
+    const path = `${user!.id}/${prefix}_${Date.now()}.${ext}`;
+
+    const res = await fetch(localUri);
+    const blob = await res.blob();
+
+    const { error } = await supabase.storage
+      .from('kyc-documents')
+      .upload(path, blob, { contentType: `image/${cleanExt}`, upsert: true });
+
+    if (error) throw error;
+    return path;
+  };
 
   const handleSubmit = async () => {
     if (!fullName.trim()) {
@@ -102,10 +221,22 @@ export function LogisticsKYCTabV2() {
       toast.error('Please enter your residential address');
       return;
     }
+    if (!passportUri) {
+      toast.error('Passport photograph is required');
+      return;
+    }
+    if (!idCardUri) {
+      toast.error('NIN or ID Card photograph is required');
+      return;
+    }
 
     try {
       setSubmitting(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+      // 1. Upload files
+      const passportPath = await uploadKycFile(passportUri, 'passport');
+      const idCardPath = await uploadKycFile(idCardUri, 'id_card');
 
       const payload = {
         user_id: user?.id,
@@ -117,6 +248,10 @@ export function LogisticsKYCTabV2() {
         driver_license_number: driverLicenseNumber.trim(),
         vehicle_type: vehicleType,
         plate_number: plateNumber.trim().toUpperCase(),
+        city_id: cityId || null,
+        zone_id: zoneId || null,
+        passport_photo_url: passportPath,
+        id_card_photo_url: idCardPath,
         status: 'pending',
         updated_at: new Date().toISOString(),
       };
@@ -127,13 +262,15 @@ export function LogisticsKYCTabV2() {
 
       if (error) throw error;
 
-      // Also ensure profile address is synced
+      // 2. Sync profile details
       await (supabase as any)
         .from('profiles')
         .update({
           display_name: fullName.trim(),
           phone: phone.trim(),
           address: homeAddress.trim(),
+          city_id: cityId || null,
+          zone_id: zoneId || null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', user?.id);
@@ -142,6 +279,7 @@ export function LogisticsKYCTabV2() {
       setKycStatus('pending');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       toast.success('KYC application submitted for review');
+      fetchKycData();
     } catch (err: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error('KYC submit error:', err);
@@ -159,6 +297,9 @@ export function LogisticsKYCTabV2() {
       </View>
     );
   }
+
+  // Filtered zones for selected city
+  const availableZones = zones.filter((z) => !cityId || z.city_id === cityId);
 
   return (
     <KeyboardAvoidingView
@@ -197,6 +338,15 @@ export function LogisticsKYCTabV2() {
                 Your documents have been submitted and are being reviewed by the operations team.
               </Text>
             </View>
+            <TouchableOpacity
+              style={styles.syncBtn}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                fetchKycData();
+              }}
+            >
+              <RefreshCw size={14} color="#d97706" />
+            </TouchableOpacity>
           </View>
         )}
 
@@ -208,7 +358,7 @@ export function LogisticsKYCTabV2() {
             <View style={styles.bannerTextWrap}>
               <Text style={styles.rejectedTitle}>VERIFICATION REJECTED</Text>
               <Text style={styles.rejectedSub}>
-                Please verify your legal details and NIN, then resubmit your verification below.
+                Please verify your legal details, re-upload clear photos, and resubmit below.
               </Text>
             </View>
           </View>
@@ -228,7 +378,7 @@ export function LogisticsKYCTabV2() {
           </View>
         )}
 
-        {/* Verification Form - Keyboard View Free */}
+        {/* Verification Form */}
         <View style={styles.formCard}>
           <Text style={styles.formSectionHeading}>RIDER CREDENTIALS</Text>
 
@@ -278,6 +428,57 @@ export function LogisticsKYCTabV2() {
             </View>
           </View>
 
+          {/* Operating Territory (City & Zone) */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>OPERATIONAL CITY</Text>
+            <View style={styles.chipsRow}>
+              {cities.map((c) => {
+                const isSelected = cityId === c.id;
+                return (
+                  <TouchableOpacity
+                    key={c.id}
+                    style={[styles.chipPill, isSelected && styles.chipPillActive]}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setCityId(c.id);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.chipPillText, isSelected && styles.chipPillTextActive]}>
+                      {c.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          {availableZones.length > 0 && (
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>PRIMARY DELIVERY ZONE</Text>
+              <View style={styles.chipsRow}>
+                {availableZones.map((z) => {
+                  const isSelected = zoneId === z.id;
+                  return (
+                    <TouchableOpacity
+                      key={z.id}
+                      style={[styles.chipPill, isSelected && styles.chipPillActive]}
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        setZoneId(z.id);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.chipPillText, isSelected && styles.chipPillTextActive]}>
+                        {z.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
           {/* NIN */}
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>NATIONAL IDENTIFICATION NUMBER (NIN)</Text>
@@ -309,6 +510,93 @@ export function LogisticsKYCTabV2() {
                 onChangeText={setDriverLicenseNumber}
               />
             </View>
+          </View>
+
+          {/* Document Uploads: Passport & NIN / ID Card */}
+          <Text style={[styles.formSectionHeading, { marginTop: 10 }]}>IDENTITY DOCUMENTS</Text>
+
+          {/* 1. Passport Photo */}
+          <View style={styles.uploadGroup}>
+            <Text style={styles.inputLabel}>PASSPORT PHOTOGRAPH</Text>
+            {passportUri ? (
+              <View style={styles.docPreviewWrap}>
+                <Image source={{ uri: passportUri }} style={styles.passportThumbnail} />
+                <View style={styles.docPreviewInfo}>
+                  <Text style={styles.docPreviewTitle}>Passport Photo Ready</Text>
+                  <Text style={styles.docPreviewSubtitle}>Clear face photo attached</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.removeDocBtn}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setPassportUri(null);
+                  }}
+                >
+                  <X size={16} color="#ef4444" />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.uploadBtnRow}>
+                <TouchableOpacity
+                  style={styles.uploadBtn}
+                  onPress={() => pickImage('passport', false)}
+                  activeOpacity={0.8}
+                >
+                  <ImagePlus size={16} color={colors.primary} />
+                  <Text style={styles.uploadBtnText}>Choose Photo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.uploadBtn, { backgroundColor: '#eff6ff' }]}
+                  onPress={() => pickImage('passport', true)}
+                  activeOpacity={0.8}
+                >
+                  <Camera size={16} color="#2563eb" />
+                  <Text style={[styles.uploadBtnText, { color: '#2563eb' }]}>Take Selfie</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+
+          {/* 2. NIN / ID Card Photo */}
+          <View style={styles.uploadGroup}>
+            <Text style={styles.inputLabel}>NIN SLIP OR VOTER'S CARD PHOTO</Text>
+            {idCardUri ? (
+              <View style={styles.docPreviewWrap}>
+                <Image source={{ uri: idCardUri }} style={styles.idCardThumbnail} />
+                <View style={styles.docPreviewInfo}>
+                  <Text style={styles.docPreviewTitle}>ID Card Photo Ready</Text>
+                  <Text style={styles.docPreviewSubtitle}>Official document attached</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.removeDocBtn}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setIdCardUri(null);
+                  }}
+                >
+                  <X size={16} color="#ef4444" />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.uploadBtnRow}>
+                <TouchableOpacity
+                  style={styles.uploadBtn}
+                  onPress={() => pickImage('id_card', false)}
+                  activeOpacity={0.8}
+                >
+                  <ImagePlus size={16} color={colors.primary} />
+                  <Text style={styles.uploadBtnText}>Upload ID Card</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.uploadBtn, { backgroundColor: '#eff6ff' }]}
+                  onPress={() => pickImage('id_card', true)}
+                  activeOpacity={0.8}
+                >
+                  <Camera size={16} color="#2563eb" />
+                  <Text style={[styles.uploadBtnText, { color: '#2563eb' }]}>Snap Document</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
 
           {/* Vehicle Type Picker */}
@@ -462,6 +750,11 @@ const styles = StyleSheet.create({
     marginTop: 2,
     lineHeight: 15,
   },
+  syncBtn: {
+    padding: 8,
+    borderRadius: 10,
+    backgroundColor: '#fef3c7',
+  },
 
   rejectedBanner: {
     flexDirection: 'row',
@@ -577,6 +870,103 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0f172a',
   },
+  chipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chipPill: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  chipPillActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  chipPillText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748b',
+  },
+  chipPillTextActive: {
+    color: '#ffffff',
+  },
+
+  // Document Uploads
+  uploadGroup: {
+    gap: 6,
+  },
+  uploadBtnRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  uploadBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#fff7ed',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#fed7aa',
+    paddingVertical: 12,
+    borderRadius: 14,
+  },
+  uploadBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+  docPreviewWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 14,
+    padding: 10,
+    gap: 12,
+  },
+  passportThumbnail: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: '#e2e8f0',
+  },
+  idCardThumbnail: {
+    width: 60,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#e2e8f0',
+  },
+  docPreviewInfo: {
+    flex: 1,
+  },
+  docPreviewTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  docPreviewSubtitle: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748b',
+    marginTop: 2,
+  },
+  removeDocBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#fee2e2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
   vehicleRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

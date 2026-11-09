@@ -46,21 +46,40 @@ serve(async (req: Request) => {
 
     if (!id || !zoneId) throw new Error("Missing required fields: id or zoneId");
 
-    // Fetch existing shipment to get delivery coords and zone
-    const { data: shipment, error: shipmentError } = await adminClient
+    // Fetch existing shipment (if any)
+    const { data: shipment } = await adminClient
       .from("shipments")
       .select("*")
       .eq("order_id", id)
-      .single();
+      .maybeSingle();
 
-    if (shipmentError || !shipment) {
-      throw new Error("Shipment not found for this order");
+    // Fetch order details & recipient info if shipment doesn't have them
+    const { data: orderData, error: orderError } = await adminClient
+      .from("orders")
+      .select("*, order_recipient(*)")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (orderError || !orderData) {
+      throw new Error(`Order ${id} not found`);
     }
+
+    const recipient = Array.isArray(orderData.order_recipient)
+      ? orderData.order_recipient[0]
+      : orderData.order_recipient;
+
+    const buyerLat = shipment?.buyer_latitude ?? recipient?.lat ?? null;
+    const buyerLng = shipment?.buyer_longitude ?? recipient?.lng ?? null;
+    const resolvedDeliveryAddress =
+      deliveryAddress ||
+      shipment?.delivery_address ||
+      recipient?.address_line ||
+      "Buyer Location";
 
     // Recalculate distance
     const distanceKm = calculateDistance(
       lat, lng,
-      shipment.buyer_latitude, shipment.buyer_longitude
+      buyerLat, buyerLng
     );
 
     // Fetch fee config
@@ -80,7 +99,7 @@ serve(async (req: Request) => {
       if (crossConfig?.flat_fee) crossZoneFeeRate = Number(crossConfig.flat_fee);
     }
 
-    const deliveryZoneId = shipment.zone_id;
+    const deliveryZoneId = shipment?.zone_id || recipient?.zone_id;
     let finalCrossZoneFee = 0;
     if (deliveryZoneId && zoneId !== deliveryZoneId) {
       finalCrossZoneFee = crossZoneFeeRate;
@@ -98,21 +117,43 @@ serve(async (req: Request) => {
       .eq("id", id);
     if (updateOrderError) throw updateOrderError;
 
-    // Update shipments
-    const { error: updateShipmentError } = await adminClient
-      .from("shipments")
-      .update({
-        seller_id: user.id,
-        zone_id: zoneId,
-        status: "pending",
-        pickup_address: pickupAddress,
-        delivery_address: deliveryAddress,
-        delivery_fee: totalDeliveryFee,
-        distance_km: distanceKm || 0,
-        updated_at: new Date().toISOString()
-      })
-      .eq('order_id', id);
-    if (updateShipmentError) throw updateShipmentError;
+    // Upsert shipments
+    if (shipment?.id) {
+      const { error: updateShipmentError } = await adminClient
+        .from("shipments")
+        .update({
+          seller_id: user.id,
+          zone_id: zoneId,
+          status: "pending",
+          pickup_address: pickupAddress,
+          delivery_address: resolvedDeliveryAddress,
+          delivery_fee: totalDeliveryFee,
+          distance_km: distanceKm || 0,
+          buyer_latitude: buyerLat,
+          buyer_longitude: buyerLng,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", shipment.id);
+      if (updateShipmentError) throw updateShipmentError;
+    } else {
+      const { error: insertShipmentError } = await adminClient
+        .from("shipments")
+        .insert({
+          order_id: id,
+          seller_id: user.id,
+          zone_id: zoneId,
+          status: "pending",
+          pickup_address: pickupAddress,
+          delivery_address: resolvedDeliveryAddress,
+          delivery_fee: totalDeliveryFee,
+          distance_km: distanceKm || 0,
+          buyer_latitude: buyerLat,
+          buyer_longitude: buyerLng,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+      if (insertShipmentError) throw insertShipmentError;
+    }
 
     // Find logistics riders in the pickup zone
     const { data: zoneProfiles } = await adminClient
@@ -159,7 +200,7 @@ serve(async (req: Request) => {
     });
   } catch (error: any) {
     console.error("Error in broadcast-order:", error.message);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ error: error.message, success: false }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 400,
     });

@@ -315,7 +315,7 @@ export function SellerDashboardScreen() {
         .select(
           'id, user_id, display_name, phone, bio, email, address, city_id, zone_id, payout_bank_name, payout_account_number, payout_account_name'
         )
-        .eq('user_id', user.id)
+        .or(`user_id.eq.${user.id},id.eq.${user.id}`)
         .maybeSingle();
 
       const { data: verif } = await supabase
@@ -506,7 +506,9 @@ export function SellerDashboardScreen() {
     zone: string,
     zoneId: string,
     pickupAddress: string,
-    pickupTime: string
+    pickupTime: string,
+    lat?: number,
+    lng?: number
   ) => {
     if (!broadcastOrderId) return;
     setIsBroadcasting(true);
@@ -517,22 +519,85 @@ export function SellerDashboardScreen() {
         recipient.delivery_zones?.name || ''
       }`;
 
-      // Invoke broadcast-order edge function with fallback
-      const { data, error } = await supabase.functions.invoke('broadcast-order', {
-        body: {
-          id: broadcastOrderId,
-          zone,
-          zoneId,
-          cityId: (sellerProfile as any)?.city_id,
-          pickupAddress,
-          deliveryAddress,
-          pickupTime,
-        },
-      });
+      // Extract existing fees from shipment for the specific seller if available
+      const existingShipment =
+        order?.shipments?.find((s: any) => s.seller_id === user?.id) ||
+        order?.shipments?.[0] ||
+        {};
+      const deliveryFeeAmount = (existingShipment as any)?.delivery_fee;
+      const crossZoneFeeAmount = (existingShipment as any)?.cross_zone_fee;
 
-      if (error || !data?.success) {
+      const payload: any = {
+        id: broadcastOrderId,
+        zone,
+        zoneId,
+        cityId: (sellerProfile as any)?.city_id,
+        pickupAddress,
+        deliveryAddress,
+        pickupTime,
+        lat,
+        lng,
+        deliveryFeeAmount,
+        crossZoneFeeAmount,
+      };
+
+      // Invoke broadcast-order edge function with fallback
+      let functionSuccess = false;
+      try {
+        const { data, error } = await supabase.functions.invoke('broadcast-order', {
+          body: payload,
+        });
+        if (!error && data?.success) {
+          functionSuccess = true;
+        }
+      } catch (invokeErr) {
+        console.warn('broadcast-order invoke error, using direct DB fallback:', invokeErr);
+      }
+
+      if (!functionSuccess) {
         // Fallback update order status to awaiting_agent directly
-        await supabase.from('orders').update({ status: 'awaiting_agent' }).eq('id', broadcastOrderId);
+        await supabase
+          .from('orders')
+          .update({
+            status: 'awaiting_agent',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', broadcastOrderId);
+
+        // Also ensure shipment row exists and is pending
+        const { data: existingShipment } = await (supabase as any)
+          .from('shipments')
+          .select('id')
+          .eq('order_id', broadcastOrderId)
+          .maybeSingle();
+
+        if (existingShipment) {
+          await (supabase as any)
+            .from('shipments')
+            .update({
+              status: 'pending',
+              zone_id: zoneId,
+              pickup_address: pickupAddress,
+              delivery_address: deliveryAddress,
+              delivery_fee: deliveryFeeAmount || 1500,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existingShipment.id);
+        } else {
+          await (supabase as any)
+            .from('shipments')
+            .insert({
+              order_id: broadcastOrderId,
+              seller_id: user?.id,
+              zone_id: zoneId,
+              status: 'pending',
+              pickup_address: pickupAddress,
+              delivery_address: deliveryAddress,
+              delivery_fee: deliveryFeeAmount || 1500,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            });
+        }
       }
 
       toast.success('Order broadcasted! Waiting for an agent to claim.');
@@ -562,7 +627,7 @@ export function SellerDashboardScreen() {
           payout_account_number: formData.payout_account_number,
           payout_account_name: formData.payout_account_name,
         })
-        .eq('user_id', user.id);
+        .or(`user_id.eq.${user.id},id.eq.${user.id}`);
 
       if (profError) throw profError;
 
@@ -607,10 +672,22 @@ export function SellerDashboardScreen() {
           >
             <Menu size={20} color="#0f172a" />
           </TouchableOpacity>
-          <View>
+
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => navigation.navigate('MainTabs', { screen: 'HomeTab' })}
+            activeOpacity={0.7}
+          >
+            <ArrowLeft size={18} color="#0f172a" strokeWidth={2.5} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => navigation.navigate('MainTabs', { screen: 'HomeTab' })}
+            activeOpacity={0.8}
+          >
             <Text style={styles.brandTitle}>LinkUp</Text>
             <Text style={styles.brandBadge}>Merchant Portal</Text>
-          </View>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.topRight}>
@@ -804,7 +881,10 @@ export function SellerDashboardScreen() {
         openIssuesCount={metrics.openIssuesCount}
         profile={sellerProfile || profile}
         wallet={wallet}
-        onExitToStore={() => navigation.navigate('Main', { screen: 'Home' } as any)}
+        onExitToStore={() => {
+          setIsSidebarOpen(false);
+          navigation.navigate('MainTabs', { screen: 'HomeTab' });
+        }}
         onLogout={async () => {
           await signOut();
           navigation.reset({
@@ -837,6 +917,16 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: '#f8fafc',
     borderWidth: 1,
     borderColor: '#e2e8f0',

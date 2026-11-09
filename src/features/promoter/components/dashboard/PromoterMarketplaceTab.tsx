@@ -16,7 +16,7 @@ export function PromoterMarketplaceTab({ products, productsLoading, promoterCode
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold">Marketplace</h2>
         <div className="text-sm text-muted-foreground">
-          Showing {products.length} popular products
+          Showing {products.length} active products
         </div>
       </div>
 

@@ -89,23 +89,33 @@ export function ProductDetailScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const id = route.params?.id;
+  const initialProduct = (route.params as any)?.initialProduct;
 
   const { addToCart, totalCount } = useCart();
   const { user, profile } = useAuth();
   const { position: userLocation } = useGeolocation();
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState<boolean>(false);
 
-  // Product & Seller Data
-  const [product, setProduct] = useState<any>(null);
-  const [seller, setSeller] = useState<any>(null);
+  // Product & Seller Data (Preloaded instantly if navigated with initialProduct)
+  const [product, setProduct] = useState<any>(() => {
+    if (!initialProduct) return null;
+    return {
+      ...initialProduct,
+      rawPrice: initialProduct.rawPrice || initialProduct.price,
+      price: initialProduct.price,
+    };
+  });
+  const [seller, setSeller] = useState<any>(initialProduct?.seller || null);
   const [reviews, setReviews] = useState<ProductReview[]>([]);
   const [markupRate, setMarkupRate] = useState<number>(0.10); // default 10%
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(!initialProduct);
   const [isWishlisted, setIsWishlisted] = useState<boolean>(false);
 
   // Gallery & Options
   const [currentImageIndex, setCurrentImageIndex] = useState<number>(0);
-  const [selectedSize, setSelectedSize] = useState<string | null>(null);
+  const [selectedSize, setSelectedSize] = useState<string | null>(
+    initialProduct?.sizes && initialProduct.sizes.length > 0 ? initialProduct.sizes[0] : null
+  );
   const galleryScrollRef = useRef<any>(null);
 
   // Review Modal State
@@ -120,15 +130,19 @@ export function ProductDetailScreen() {
   const [reportDetails, setReportDetails] = useState<string>('');
   const [submittingReport, setSubmittingReport] = useState<boolean>(false);
 
-  // Load Product, Fee Config, Seller, Reviews & Wishlist status
+  // Load Product, Fee Config, Seller, Reviews & Wishlist status in background
   useEffect(() => {
+    let isMounted = true;
+
     async function loadData() {
       try {
-        setLoading(true);
+        if (!product) {
+          setLoading(true);
+        }
 
         if (!id) {
           console.warn('[ProductDetailScreen] No id provided in route.params');
-          setLoading(false);
+          if (isMounted) setLoading(false);
           return;
         }
 
@@ -151,7 +165,7 @@ export function ProductDetailScreen() {
         }
 
         const pData = pRes.data;
-        if (pData) {
+        if (pData && isMounted) {
           const prodFee = feeRes.data?.find((f: any) => f.fee_type === 'platform_product');
           const rate = prodFee?.rate ?? 0.10;
           setMarkupRate(rate);
@@ -162,15 +176,16 @@ export function ProductDetailScreen() {
             ? Math.round(pData.original_price * multiplier)
             : null;
 
-          setProduct({
+          setProduct((prev: any) => ({
+            ...(prev || {}),
             ...pData,
             rawPrice: pData.price,
             price: calculatedPrice,
             original_price: calculatedOriginal,
-          });
+          }));
 
           if (pData.sizes && pData.sizes.length > 0) {
-            setSelectedSize(pData.sizes[0]);
+            setSelectedSize((prev: string | null) => prev || pData.sizes[0]);
           }
 
           // 2. Fetch Seller Profile
@@ -181,7 +196,7 @@ export function ProductDetailScreen() {
               .eq('id', pData.seller_id)
               .maybeSingle();
 
-            if (sData) setSeller(sData);
+            if (sData && isMounted) setSeller(sData);
           }
         }
 
@@ -198,12 +213,12 @@ export function ProductDetailScreen() {
           .eq('product_id', id)
           .order('created_at', { ascending: false });
 
-        if (rData) {
+        if (rData && isMounted) {
           setReviews(rData as any);
         }
 
         // 4. Check Wishlist
-        if (user) {
+        if (user && isMounted) {
           const { data: likeData } = await supabase
             .from('likes')
             .select('product_id')
@@ -211,18 +226,22 @@ export function ProductDetailScreen() {
             .eq('product_id', id)
             .maybeSingle();
 
-          if (likeData) {
+          if (likeData && isMounted) {
             setIsWishlisted(true);
           }
         }
       } catch (err) {
         console.warn('Error loading product details:', err);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     }
 
     loadData();
+
+    return () => {
+      isMounted = false;
+    };
   }, [id, user]);
 
   // Gallery Horizontal Scroll Listener
@@ -417,12 +436,23 @@ export function ProductDetailScreen() {
     }
   };
 
-  if (loading) {
+  if (loading && !product) {
     return (
       <SafeView>
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.headerIconBtn}
+            onPress={() => navigation.goBack()}
+            activeOpacity={0.8}
+          >
+            <ArrowLeft size={20} color="#0f172a" strokeWidth={2.5} />
+          </TouchableOpacity>
+          <BrandLogo size="sm" />
+          <View style={{ width: 40 }} />
+        </View>
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading product details...</Text>
+          <Text style={styles.loadingText}>Loading product...</Text>
         </View>
       </SafeView>
     );

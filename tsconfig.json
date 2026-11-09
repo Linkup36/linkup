@@ -40,5 +40,10 @@
     "src",
     "vite.config.ts",
     "vitest.config.ts"
+  ],
+  "exclude": [
+    "mobile",
+    "node_modules",
+    "dist"
   ]
 }

@@ -180,6 +180,12 @@ export function OrdersTab({ orders, totalOrders, ordersPage, setOrdersPage, page
                                                         </Badge>
                                                     )}
                                                 </div>
+                                                <div className="mt-3 p-2.5 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center gap-2">
+                                                    <ShieldCheck size={13} className="text-emerald-600 shrink-0" />
+                                                    <span className="text-[10px] font-bold text-emerald-800 leading-tight">
+                                                        Buyer Contact Protected: Phone/email shielded for privacy & escrow security.
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
 

@@ -860,7 +860,7 @@ BEGIN
     INSERT INTO public.send_order_tracking_logs (
         order_id,
         status,
-        note,
+        notes,
         created_at
     ) VALUES (
         p_order_id,
@@ -872,13 +872,13 @@ BEGIN
     -- 5. Broadcast in-app notification to active dispatch riders
     INSERT INTO public.notifications (user_id, type, message, read, created_at)
     SELECT 
-        id, 
-        'new_send_mission', 
+        DISTINCT user_id, 
+        'delivery', 
         'New package delivery mission available: ₦' || v_required_amount || ' · ' || v_order.pickup_address, 
         false, 
         NOW()
-    FROM public.profiles
-    WHERE role = 'rider' OR role = 'logistics';
+    FROM public.user_roles
+    WHERE role = 'logistics';
 
     RETURN jsonb_build_object(
         'success', true,

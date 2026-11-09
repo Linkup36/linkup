@@ -133,7 +133,7 @@ export function LogisticsDashboardV2Screen() {
           .from('send_orders')
           .select('id', { count: 'exact', head: true })
           .eq('rider_id', user.id)
-          .in('status', ['assigned_rider', 'pickup', 'on_the_way', 'assigned', 'picked_up', 'in_transit']),
+          .in('status', ['assigned_rider', 'pickup', 'on_the_way']),
       ]);
 
       const totalActive = (shipmentsRes.count || 0) + (sendOrdersRes.count || 0);
@@ -387,15 +387,20 @@ export function LogisticsDashboardV2Screen() {
       {/* 1. Header Bar */}
       <View style={styles.headerBar}>
         <View style={styles.headerLeft}>
-          {navigation.canGoBack() && (
-            <TouchableOpacity
-              style={styles.backBtn}
-              onPress={() => navigation.goBack()}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <ArrowLeft size={20} color="#0F172A" />
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+              } else {
+                navigation.navigate('MainTabs', { screen: 'HomeTab' } as any);
+              }
+            }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <ArrowLeft size={20} color="#0F172A" />
+          </TouchableOpacity>
 
           <View style={styles.brandContainer}>
             <View style={styles.logoPill}>
@@ -535,10 +540,10 @@ export function LogisticsDashboardV2Screen() {
 
             <View style={styles.sectionHeadingRow}>
               <Radio size={14} color={colors.primary} />
-              <Text style={styles.sectionHeadingText}>MY ACTIVE MISSIONS IN TRANSIT</Text>
+              <Text style={styles.sectionHeadingText}>MISSION DISPATCH RADAR</Text>
             </View>
 
-            <ShipmentFeedV2 defaultFilter="active" />
+            <ShipmentFeedV2 defaultFilter="all" />
           </View>
         )}
 

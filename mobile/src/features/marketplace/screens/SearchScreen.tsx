@@ -266,7 +266,11 @@ export function SearchScreen() {
               product={item}
               userLocation={userLocation}
               onPress={() =>
-                navigation.navigate('ProductDetail', { id: item.id, title: item.title })
+                navigation.navigate('ProductDetail', {
+                  id: item.id,
+                  title: item.title,
+                  initialProduct: item,
+                })
               }
               onAddToCart={() => addToCart(item.id, 1)}
             />

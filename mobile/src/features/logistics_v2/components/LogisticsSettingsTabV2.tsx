@@ -138,7 +138,7 @@ export function LogisticsSettingsTabV2() {
       // 3. Fetch cities and zones for territory selection
       const [citiesRes, zonesRes] = await Promise.all([
         supabase.from('cities').select('*').order('name'),
-        supabase.from('zones').select('*').order('name'),
+        supabase.from('delivery_zones').select('*').order('name'),
       ]);
 
       if (citiesRes.data) setCities(citiesRes.data);
