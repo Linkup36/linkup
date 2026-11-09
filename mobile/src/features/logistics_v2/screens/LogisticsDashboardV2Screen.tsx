@@ -26,7 +26,6 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as Haptics from 'expo-haptics';
-import * as Notifications from 'expo-notifications';
 import { RootStackParamList } from '../../../navigation/types';
 import { SafeAreaView, SafeView } from '../../../components/ui/SafeView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -39,6 +38,8 @@ import {
   registerForPushNotificationsAsync,
   triggerRiderMissionAlertAsync,
   triggerRiderEarningsAlertAsync,
+  scheduleNotificationAsync,
+  AndroidNotificationPriority,
 } from '../../../services/notifications';
 
 import { ShipmentFeedV2 } from '../components/ShipmentFeedV2';
@@ -319,14 +320,11 @@ export function LogisticsDashboardV2Screen() {
         async (payload: any) => {
           const notif = payload.new;
           if (notif) {
-            await Notifications.scheduleNotificationAsync({
+            await scheduleNotificationAsync({
               content: {
                 title: notif.title || 'LinkUp Dispatch Notification',
                 body: notif.message,
-                sound: true,
-                priority: Notifications.AndroidNotificationPriority.MAX,
-                vibrate: [0, 250, 250, 250],
-                color: '#E96F28',
+                priority: AndroidNotificationPriority.MAX,
               },
               trigger: null,
             });

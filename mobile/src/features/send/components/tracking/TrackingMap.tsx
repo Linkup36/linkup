@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet, Text } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { Marker, Polyline, PROVIDER_DEFAULT, MapViewRef } from '../../../../components/ui/LeafletMap';
 import { Bike, Navigation } from 'lucide-react-native';
 import { colors } from '../../../../theme/colors';
 
@@ -17,7 +17,7 @@ export function TrackingMap({
   riderCoords,
   status,
 }: TrackingMapProps) {
-  const mapRef = useRef<MapView | null>(null);
+  const mapRef = useRef<MapViewRef | null>(null);
 
   const defaultCenter = {
     latitude: riderCoords?.lat || pickupCoords?.lat || 9.0765,

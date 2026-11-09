@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet, Text } from 'react-native';
-import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_DEFAULT, MapViewRef } from '../../../components/ui/LeafletMap';
 import { colors } from '../../../theme/colors';
 
 interface LiveTrackingMapProps {
@@ -14,7 +14,7 @@ export function LiveTrackingMap({
   buyerCoords,
   height = 200,
 }: LiveTrackingMapProps) {
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<MapViewRef>(null);
 
   const defaultCoords = {
     latitude: 9.0765, // Abuja default

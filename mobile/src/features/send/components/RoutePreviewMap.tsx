@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { Marker, Polyline, PROVIDER_DEFAULT, MapViewRef } from '../../../components/ui/LeafletMap';
 import { Clock, Navigation } from 'lucide-react-native';
 import { useRoadRoute } from '../hooks/useRoadRoute';
 import { colors } from '../../../theme/colors';
@@ -22,7 +22,7 @@ export function RoutePreviewMap({
   distanceKm,
   estimatedMinutes,
 }: RoutePreviewMapProps) {
-  const mapRef = useRef<MapView | null>(null);
+  const mapRef = useRef<MapViewRef | null>(null);
 
   const { data: roadData } = useRoadRoute(pickupLat, pickupLng, dropoffLat, dropoffLng);
 

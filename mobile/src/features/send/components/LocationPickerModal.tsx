@@ -9,7 +9,7 @@ import {
   Dimensions,
   Platform,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_DEFAULT, MapViewRef } from '../../../components/ui/LeafletMap';
 import { MapPin, Navigation, X, Check } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
@@ -36,7 +36,7 @@ export function LocationPickerModal({
   initialAddress,
   onSelectLocation,
 }: LocationPickerModalProps) {
-  const mapRef = useRef<MapView | null>(null);
+  const mapRef = useRef<MapViewRef | null>(null);
   const isPickup = mode === 'pickup';
 
   const defaultLat = initialLatitude || 9.0765; // Abuja default
