@@ -110,7 +110,33 @@ export function PromoterDashboardScreen() {
   const [bankName, setBankName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [accountName, setAccountName] = useState('');
+  const [fee, setFee] = useState(100);
   const [submittingWithdraw, setSubmittingWithdraw] = useState(false);
+
+  // Fetch withdrawal fee from system settings
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'withdrawal_fee')
+          .maybeSingle();
+
+        if (data?.value) {
+          const val =
+            typeof data.value === 'object' && 'amount' in (data.value as any)
+              ? Number((data.value as any).amount)
+              : Number(data.value);
+          if (!isNaN(val) && val >= 0) {
+            setFee(val);
+          }
+        }
+      } catch {
+        // use fallback fee
+      }
+    })();
+  }, []);
 
   const referralLink = `https://linkupng.com?ref=${promoterCode || user?.id?.slice(0, 8) || 'join'}`;
 
@@ -397,8 +423,12 @@ export function PromoterDashboardScreen() {
       Alert.alert('Invalid Amount', 'Minimum withdrawal amount is ₦1,000.');
       return;
     }
-    if (!wallet || amt > wallet.balance) {
-      Alert.alert('Insufficient Balance', `Withdrawal amount exceeds your available balance of ${formatPrice(wallet?.balance || 0)}.`);
+    const totalDeduction = amt + fee;
+    if (!wallet || totalDeduction > wallet.balance) {
+      Alert.alert(
+        'Insufficient Balance',
+        `Withdrawal of ₦${amt.toLocaleString()} plus ₦${fee.toLocaleString()} fee (total ₦${totalDeduction.toLocaleString()}) exceeds your available balance of ${formatPrice(wallet?.balance || 0)}.`
+      );
       return;
     }
     if (!bankName.trim() || !accountNumber.trim() || accountNumber.trim().length !== 10) {
@@ -413,7 +443,7 @@ export function PromoterDashboardScreen() {
         user_id: user?.id,
         wallet_id: wallet.id,
         amount: amt,
-        fee_amount: 0,
+        fee_amount: fee,
         bank_name: bankName.trim(),
         account_number: accountNumber.trim(),
         account_name: accountName.trim() || profile?.full_name || 'Promoter',

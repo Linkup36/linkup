@@ -61,7 +61,33 @@ export function WalletScreen() {
   const [bankName, setBankName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [accountName, setAccountName] = useState('');
+  const [fee, setFee] = useState(100);
   const [submittingWithdraw, setSubmittingWithdraw] = useState(false);
+
+  // Fetch withdrawal fee from system settings
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'withdrawal_fee')
+          .maybeSingle();
+
+        if (data?.value) {
+          const val =
+            typeof data.value === 'object' && 'amount' in (data.value as any)
+              ? Number((data.value as any).amount)
+              : Number(data.value);
+          if (!isNaN(val) && val >= 0) {
+            setFee(val);
+          }
+        }
+      } catch {
+        // use fallback fee
+      }
+    })();
+  }, []);
 
   const fetchWalletData = async () => {
     if (!user) return;
@@ -180,8 +206,12 @@ export function WalletScreen() {
       Alert.alert('Invalid Amount', 'Minimum withdrawal amount is ₦1,000.');
       return;
     }
-    if (!wallet || amt > wallet.balance) {
-      Alert.alert('Insufficient Balance', 'Withdrawal amount exceeds your available balance.');
+    const totalDeduction = amt + fee;
+    if (!wallet || totalDeduction > wallet.balance) {
+      Alert.alert(
+        'Insufficient Balance',
+        `Withdrawal of ₦${amt.toLocaleString()} plus ₦${fee.toLocaleString()} processing fee (total ₦${totalDeduction.toLocaleString()}) exceeds your available balance of ₦${(wallet?.balance || 0).toLocaleString()}.`
+      );
       return;
     }
     if (!bankName || !accountNumber || accountNumber.length < 10) {
@@ -195,7 +225,7 @@ export function WalletScreen() {
         user_id: user?.id,
         wallet_id: wallet.id,
         amount: amt,
-        fee_amount: 0,
+        fee_amount: fee,
         bank_name: bankName.trim(),
         account_number: accountNumber.trim(),
         account_name: accountName.trim() || profile?.full_name || 'Account Holder',
@@ -433,12 +463,15 @@ export function WalletScreen() {
           </View>
 
           {/* Quick Percentage Presets */}
-          {wallet && wallet.balance >= 1000 && (
+          {wallet && wallet.balance >= 1000 + fee && (
             <View style={styles.quickPills}>
               {[
                 { label: '₦1,000', val: 1000 },
-                { label: '50%', val: Math.floor(wallet.balance * 0.5) },
-                { label: 'MAX', val: wallet.balance },
+                {
+                  label: '50%',
+                  val: Math.max(1000, Math.floor((wallet.balance - fee) * 0.5)),
+                },
+                { label: 'MAX', val: Math.max(0, wallet.balance - fee) },
               ].map((item, idx) => (
                 <TouchableOpacity
                   key={idx}
@@ -456,6 +489,27 @@ export function WalletScreen() {
               ))}
             </View>
           )}
+
+          {/* Fee & Net Transfer Summary */}
+          <View style={styles.feeBreakdownBox}>
+            <View style={styles.feeRow}>
+              <Text style={styles.feeRowLabel}>Transfer to Bank Account:</Text>
+              <Text style={styles.feeRowValue}>
+                ₦{(parseFloat(withdrawAmount) || 0).toLocaleString()}
+              </Text>
+            </View>
+            <View style={styles.feeRow}>
+              <Text style={styles.feeRowLabel}>System Processing Fee:</Text>
+              <Text style={styles.feeRowValue}>₦{fee.toLocaleString()}</Text>
+            </View>
+            <View style={styles.feeDivider} />
+            <View style={styles.feeRow}>
+              <Text style={styles.feeRowTotalLabel}>Total Wallet Deduction:</Text>
+              <Text style={styles.feeRowTotalValue}>
+                ₦{((parseFloat(withdrawAmount) || 0) + fee).toLocaleString()}
+              </Text>
+            </View>
+          </View>
 
           {/* Bank Name */}
           <Text style={[styles.inputLabel, { marginTop: 14 }]}>Bank Name</Text>
@@ -819,5 +873,44 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#94a3b8',
     textDecorationLine: 'underline',
+  },
+  feeBreakdownBox: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    gap: 6,
+    marginTop: 14,
+  },
+  feeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  feeRowLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  feeRowValue: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  feeDivider: {
+    height: 1,
+    backgroundColor: '#e2e8f0',
+    marginVertical: 2,
+  },
+  feeRowTotalLabel: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#0f172a',
+  },
+  feeRowTotalValue: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: colors.primary,
   },
 });
