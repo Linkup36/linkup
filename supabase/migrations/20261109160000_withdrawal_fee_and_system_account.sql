@@ -1,14 +1,37 @@
 -- Migration: 20261109160000_withdrawal_fee_and_system_account.sql
--- Description: Ensure payout_requests, profiles, and system settings exist, handle fee deduction and routing
+-- Description: Comprehensive self-contained migration for payout_requests, withdrawal fee, and system accounting
 
--- 1. Ensure profile columns exist
+-- 1. Ensure public.profiles has required columns
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS display_name TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'buyer';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS payout_bank_name TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS payout_account_number TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS payout_account_name TEXT;
 
--- 2. Ensure system_settings table and default withdrawal fee exist
+-- 2. Ensure public.user_roles exists
+DO $type_safe$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'app_role') THEN
+        CREATE TYPE public.app_role AS ENUM ('buyer', 'seller', 'promoter', 'logistics', 'admin');
+    END IF;
+END $type_safe$;
+
+CREATE TABLE IF NOT EXISTS public.user_roles (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    role public.app_role NOT NULL DEFAULT 'buyer',
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(user_id, role)
+);
+
+ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Public can view user roles" ON public.user_roles;
+CREATE POLICY "Public can view user roles" ON public.user_roles
+    FOR SELECT TO public
+    USING (true);
+
+-- 3. Ensure public.system_settings exists with withdrawal_fee
 CREATE TABLE IF NOT EXISTS public.system_settings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     key TEXT NOT NULL UNIQUE,
@@ -27,13 +50,64 @@ CREATE POLICY "Public can read system settings" ON public.system_settings
 DROP POLICY IF EXISTS "Admins can manage system settings" ON public.system_settings;
 CREATE POLICY "Admins can manage system settings" ON public.system_settings
     FOR ALL TO authenticated
-    USING (EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = auth.uid() AND role = 'admin'));
+    USING (
+        EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = auth.uid() AND role::text = 'admin')
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+    );
 
 INSERT INTO public.system_settings (key, value, description)
 VALUES ('withdrawal_fee', '{"amount": 100, "type": "flat"}'::jsonb, 'Standard withdrawal processing fee')
 ON CONFLICT (key) DO NOTHING;
 
--- 3. Ensure payout_requests table and columns exist
+-- 4. Ensure public.wallets and public.wallet_transactions exist
+CREATE TABLE IF NOT EXISTS public.wallets (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE UNIQUE NOT NULL,
+    balance NUMERIC(10,2) NOT NULL DEFAULT 0,
+    escrow_balance NUMERIC(10,2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.wallets ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users view own wallet" ON public.wallets;
+CREATE POLICY "Users view own wallet" ON public.wallets 
+    FOR SELECT TO authenticated 
+    USING (user_id = auth.uid());
+
+CREATE TABLE IF NOT EXISTS public.wallet_transactions (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    wallet_id UUID REFERENCES public.wallets(id) ON DELETE CASCADE NOT NULL,
+    amount NUMERIC(10,2) NOT NULL,
+    type TEXT NOT NULL,
+    reference TEXT,
+    status TEXT DEFAULT 'completed',
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.wallet_transactions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own wallet transactions" ON public.wallet_transactions;
+CREATE POLICY "Users can view own wallet transactions" ON public.wallet_transactions
+    FOR SELECT TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.wallets
+            WHERE wallets.id = wallet_transactions.wallet_id
+              AND wallets.user_id = auth.uid()
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.user_roles
+            WHERE user_id = auth.uid() AND role::text = 'admin'
+        )
+        OR EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE id = auth.uid() AND role = 'admin'
+        )
+    );
+
+-- 5. Ensure public.payout_requests exists
 CREATE TABLE IF NOT EXISTS public.payout_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
@@ -55,14 +129,17 @@ ALTER TABLE public.payout_requests ADD COLUMN IF NOT EXISTS wallet_id UUID REFER
 ALTER TABLE public.payout_requests ADD COLUMN IF NOT EXISTS admin_notes TEXT;
 ALTER TABLE public.payout_requests ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
 
--- Enable RLS and policies for payout_requests
 ALTER TABLE public.payout_requests ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Users can view own payout requests" ON public.payout_requests;
 CREATE POLICY "Users can view own payout requests" 
 ON public.payout_requests FOR SELECT 
 TO authenticated 
-USING (user_id = auth.uid() OR EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = auth.uid() AND role = 'admin'));
+USING (
+    user_id = auth.uid() 
+    OR EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = auth.uid() AND role::text = 'admin')
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+);
 
 DROP POLICY IF EXISTS "Users can create own payout requests" ON public.payout_requests;
 CREATE POLICY "Users can create own payout requests" 
@@ -74,9 +151,28 @@ DROP POLICY IF EXISTS "Admins can update payout requests" ON public.payout_reque
 CREATE POLICY "Admins can update payout requests" 
 ON public.payout_requests FOR UPDATE 
 TO authenticated 
-USING (EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = auth.uid() AND role = 'admin'));
+USING (
+    EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = auth.uid() AND role::text = 'admin')
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+);
 
--- 4. Trigger for deducting wallet balance and fee on payout request placement
+-- 6. Ensure public.notifications exists
+CREATE TABLE IF NOT EXISTS public.notifications (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    type TEXT NOT NULL,
+    message TEXT NOT NULL,
+    read BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own notifications" ON public.notifications;
+CREATE POLICY "Users can view own notifications" ON public.notifications
+    FOR SELECT TO authenticated USING (user_id = auth.uid());
+
+-- 7. Trigger: Deduct amount + fee from wallet on payout placement
 CREATE OR REPLACE FUNCTION public.handle_payout_request_insert()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -127,8 +223,7 @@ CREATE TRIGGER trigger_payout_request_insert
     FOR EACH ROW
     EXECUTE FUNCTION public.handle_payout_request_insert();
 
-
--- 5. Trigger for handling payout approval (crediting fee to admin/system account) or rejection (refunding user)
+-- 8. Trigger: Route fee to admin/system account on approval; refund on rejection
 CREATE OR REPLACE FUNCTION public.handle_payout_request_status_change()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -136,14 +231,16 @@ DECLARE
     v_admin_wallet_id UUID;
 BEGIN
     -- Case A: Payout is APPROVED or COMPLETED
-    -- Transfer the processing fee to the system/admin wallet
     IF NEW.status IN ('approved', 'completed') AND (OLD.status IS NULL OR OLD.status NOT IN ('approved', 'completed')) THEN
         IF COALESCE(NEW.fee_amount, 0) > 0 THEN
-            -- Find the system administrator wallet
+            -- Find an active administrator wallet
             SELECT w.id INTO v_admin_wallet_id
             FROM public.wallets w
-            JOIN public.user_roles ur ON ur.user_id = w.user_id
-            WHERE ur.role = 'admin'
+            WHERE w.user_id IN (
+                SELECT user_id FROM public.user_roles WHERE role::text = 'admin'
+                UNION
+                SELECT id FROM public.profiles WHERE role = 'admin'
+            )
             ORDER BY w.created_at ASC
             LIMIT 1;
 
@@ -175,7 +272,6 @@ BEGIN
         );
 
     -- Case B: Payout is REJECTED
-    -- Refund both withdrawal amount and fee back to user's wallet
     ELSIF NEW.status = 'rejected' AND (OLD.status IS NULL OR OLD.status != 'rejected') THEN
         v_total_refund := NEW.amount + COALESCE(NEW.fee_amount, 0);
 
@@ -196,8 +292,11 @@ BEGIN
         IF OLD.status IN ('approved', 'completed') AND COALESCE(NEW.fee_amount, 0) > 0 THEN
             SELECT w.id INTO v_admin_wallet_id
             FROM public.wallets w
-            JOIN public.user_roles ur ON ur.user_id = w.user_id
-            WHERE ur.role = 'admin'
+            WHERE w.user_id IN (
+                SELECT user_id FROM public.user_roles WHERE role::text = 'admin'
+                UNION
+                SELECT id FROM public.profiles WHERE role = 'admin'
+            )
             ORDER BY w.created_at ASC
             LIMIT 1;
 
