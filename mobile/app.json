@@ -1,0 +1,82 @@
+{
+  "expo": {
+    "name": "Linkup Marketplace",
+    "slug": "linkup-marketplace",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FDFEFE"
+    },
+    "scheme": "linkup",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.linkup.marketplace",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Linkup requires camera access to allow you to photograph items for sale and scan courier QR codes.",
+        "NSPhotoLibraryUsageDescription": "Linkup requires access to your photo library to upload product images and KYC verification documents.",
+        "NSLocationWhenInUseUsageDescription": "Linkup uses your location to estimate delivery fees, match nearby sellers, and track live courier shipments.",
+        "UIBackgroundModes": [
+          "remote-notification",
+          "fetch"
+        ]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#EB7D30"
+      },
+      "softwareKeyboardLayoutMode": "resize",
+      "package": "com.linkup.marketplace",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyYOUR_GOOGLE_MAPS_API_KEY_HERE"
+        }
+      }
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Linkup Marketplace to access your photos to upload product and profile pictures."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Linkup Marketplace to access your location to calculate shipping rates and show real-time shipment status."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#EB7D30"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f6307ce8-c125-449e-80d6-894c5a8bddf9"
+      }
+    },
+    "owner": "osamaabdull"
+  }
+}
