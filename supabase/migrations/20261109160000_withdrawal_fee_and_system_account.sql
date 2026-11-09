@@ -1,14 +1,9 @@
 -- Migration: 20261109160000_withdrawal_fee_and_system_account.sql
 -- Description: Handle withdrawal processing fee deduction and routing to system account upon approval
 
--- 1. Ensure System Account (Linkup Revenue) profile and wallet exist
-INSERT INTO public.profiles (id, display_name)
-VALUES ('00000000-0000-0000-0000-000000000000', 'Linkup Revenue')
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO public.wallets (id, user_id, balance)
-VALUES ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', 0)
-ON CONFLICT (id) DO NOTHING;
+-- 1. Ensure profile columns exist for cross-compatibility
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS display_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS full_name TEXT;
 
 -- 2. Trigger for deducting wallet balance and fee on payout request placement
 CREATE OR REPLACE FUNCTION public.handle_payout_request_insert()
@@ -62,40 +57,40 @@ CREATE TRIGGER trigger_payout_request_insert
     EXECUTE FUNCTION public.handle_payout_request_insert();
 
 
--- 3. Trigger for handling payout approval (crediting fee to system account) or rejection (refunding user)
+-- 3. Trigger for handling payout approval (crediting fee to admin/system account) or rejection (refunding user)
 CREATE OR REPLACE FUNCTION public.handle_payout_request_status_change()
 RETURNS TRIGGER AS $$
 DECLARE
     v_total_refund NUMERIC;
-    v_system_wallet_id UUID := '00000000-0000-0000-0000-000000000000';
+    v_admin_wallet_id UUID;
 BEGIN
     -- Case A: Payout is APPROVED or COMPLETED
-    -- Transfer the processing fee to the system account wallet
+    -- Transfer the processing fee to the system/admin wallet
     IF NEW.status IN ('approved', 'completed') AND (OLD.status IS NULL OR OLD.status NOT IN ('approved', 'completed')) THEN
         IF COALESCE(NEW.fee_amount, 0) > 0 THEN
-            -- Ensure system wallet exists
-            INSERT INTO public.profiles (id, display_name)
-            VALUES (v_system_wallet_id, 'Linkup Revenue')
-            ON CONFLICT (id) DO NOTHING;
+            -- Find the system administrator wallet
+            SELECT w.id INTO v_admin_wallet_id
+            FROM public.wallets w
+            JOIN public.user_roles ur ON ur.user_id = w.user_id
+            WHERE ur.role = 'admin'
+            ORDER BY w.created_at ASC
+            LIMIT 1;
 
-            INSERT INTO public.wallets (id, user_id, balance)
-            VALUES (v_system_wallet_id, v_system_wallet_id, 0)
-            ON CONFLICT (id) DO NOTHING;
+            -- If an admin wallet exists, credit the fee and log transaction
+            IF v_admin_wallet_id IS NOT NULL THEN
+                UPDATE public.wallets
+                SET balance = balance + NEW.fee_amount,
+                    updated_at = NOW()
+                WHERE id = v_admin_wallet_id;
 
-            -- Credit fee to system revenue wallet
-            UPDATE public.wallets
-            SET balance = balance + NEW.fee_amount,
-                updated_at = NOW()
-            WHERE id = v_system_wallet_id;
-
-            -- Log transaction on system wallet
-            INSERT INTO public.wallet_transactions (wallet_id, amount, type, reference)
-            VALUES (
-                v_system_wallet_id,
-                NEW.fee_amount,
-                'withdrawal_fee_income',
-                'Withdrawal processing fee from payout #' || NEW.id
-            );
+                INSERT INTO public.wallet_transactions (wallet_id, amount, type, reference)
+                VALUES (
+                    v_admin_wallet_id,
+                    NEW.fee_amount,
+                    'withdrawal_fee_income',
+                    'Withdrawal processing fee from payout #' || NEW.id
+                );
+            END IF;
         END IF;
 
         -- Send notification to user
@@ -126,20 +121,29 @@ BEGIN
             'Refund of rejected withdrawal request #' || NEW.id
         );
 
-        -- If fee had already been transferred to system wallet, reverse it
+        -- If fee had already been transferred to admin wallet, reverse it
         IF OLD.status IN ('approved', 'completed') AND COALESCE(NEW.fee_amount, 0) > 0 THEN
-            UPDATE public.wallets
-            SET balance = GREATEST(0, balance - NEW.fee_amount),
-                updated_at = NOW()
-            WHERE id = v_system_wallet_id;
+            SELECT w.id INTO v_admin_wallet_id
+            FROM public.wallets w
+            JOIN public.user_roles ur ON ur.user_id = w.user_id
+            WHERE ur.role = 'admin'
+            ORDER BY w.created_at ASC
+            LIMIT 1;
 
-            INSERT INTO public.wallet_transactions (wallet_id, amount, type, reference)
-            VALUES (
-                v_system_wallet_id,
-                -NEW.fee_amount,
-                'fee_reversal',
-                'Reversal of fee for rejected payout #' || NEW.id
-            );
+            IF v_admin_wallet_id IS NOT NULL THEN
+                UPDATE public.wallets
+                SET balance = GREATEST(0, balance - NEW.fee_amount),
+                    updated_at = NOW()
+                WHERE id = v_admin_wallet_id;
+
+                INSERT INTO public.wallet_transactions (wallet_id, amount, type, reference)
+                VALUES (
+                    v_admin_wallet_id,
+                    -NEW.fee_amount,
+                    'fee_reversal',
+                    'Reversal of fee for rejected payout #' || NEW.id
+                );
+            END IF;
         END IF;
 
         -- Send notification to user
