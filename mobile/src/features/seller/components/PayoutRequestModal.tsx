@@ -74,9 +74,31 @@ export function PayoutRequestModal({
     try {
       Haptics.selectionAsync().catch(() => {});
 
+      // 1. Resolve target wallet ID
+      let targetWalletId = wallet?.id;
+      if (!targetWalletId && user?.id) {
+        const { data: w } = await supabase
+          .from('wallets')
+          .select('id, balance')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (w?.id) {
+          targetWalletId = w.id;
+        }
+      }
+
+      if (!targetWalletId) {
+        Alert.alert('Wallet Error', 'Could not locate your active wallet. Please refresh and try again.');
+        setSubmitting(false);
+        return;
+      }
+
+      // 2. Insert payout request with wallet_id and fee_amount (database trigger validates balance, deducts wallet balance, and creates transaction)
       const { error } = await supabase.from('payout_requests').insert({
         user_id: user?.id,
+        wallet_id: targetWalletId,
         amount: amt,
+        fee_amount: 0,
         bank_name: bankName.trim(),
         account_number: accountNumber.trim(),
         account_name: accountName.trim() || profile?.display_name || 'Account Holder',
@@ -85,20 +107,16 @@ export function PayoutRequestModal({
 
       if (error) throw error;
 
-      // Deduct balance and create transaction
-      if (wallet?.id) {
+      // 3. Save bank details to user profile for future auto-fill
+      if (user?.id) {
         await supabase
-          .from('wallets')
-          .update({ balance: availableBalance - amt })
-          .eq('id', wallet.id);
-
-        await supabase.from('wallet_transactions').insert({
-          wallet_id: wallet.id,
-          amount: amt,
-          type: 'debit',
-          reference: `WD-${Date.now()}`,
-          status: 'pending',
-        });
+          .from('profiles')
+          .update({
+            payout_bank_name: bankName.trim(),
+            payout_account_number: accountNumber.trim(),
+            payout_account_name: accountName.trim(),
+          })
+          .eq('id', user.id);
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});

@@ -408,10 +408,12 @@ export function PromoterDashboardScreen() {
 
     setSubmittingWithdraw(true);
     try {
-      // 1. Insert payout request
+      // 1. Insert payout request (DB trigger validates balance, deducts wallet balance, and creates transaction)
       const { error } = await supabase.from('payout_requests').insert({
         user_id: user?.id,
+        wallet_id: wallet.id,
         amount: amt,
+        fee_amount: 0,
         bank_name: bankName.trim(),
         account_number: accountNumber.trim(),
         account_name: accountName.trim() || profile?.full_name || 'Promoter',
@@ -420,19 +422,17 @@ export function PromoterDashboardScreen() {
 
       if (error) throw error;
 
-      // 2. Deduct available balance
-      await supabase
-        .from('wallets')
-        .update({ balance: wallet.balance - amt })
-        .eq('id', wallet.id);
-
-      // 3. Log debit transaction
-      await supabase.from('wallet_transactions').insert({
-        wallet_id: wallet.id,
-        amount: amt,
-        type: 'debit',
-        reference: `WD-${Date.now()}`,
-      });
+      // 2. Save bank details to user profile
+      if (user?.id) {
+        await supabase
+          .from('profiles')
+          .update({
+            payout_bank_name: bankName.trim(),
+            payout_account_number: accountNumber.trim(),
+            payout_account_name: accountName.trim(),
+          })
+          .eq('id', user.id);
+      }
 
       setIsWithdrawOpen(false);
       setWithdrawAmount('');

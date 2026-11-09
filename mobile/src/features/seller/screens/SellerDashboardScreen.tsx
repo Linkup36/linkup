@@ -156,9 +156,7 @@ export function SellerDashboardScreen() {
             status,
             tracking_code,
             zone_id,
-            delivery_fee,
-            profiles:rider_id (display_name),
-            delivery_zones (name)
+            delivery_fee
           )
         `,
           { count: 'exact' }
@@ -167,7 +165,9 @@ export function SellerDashboardScreen() {
         .order('created_at', { ascending: false })
         .range(from, to);
 
-      if (!error && data) {
+      if (error) {
+        console.error('Seller orders fetch error:', error);
+      } else if (data) {
         setOrders(data);
         setTotalOrders(count || 0);
 
