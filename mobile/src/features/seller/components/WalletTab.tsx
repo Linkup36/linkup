@@ -1,10 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
   ActivityIndicator,
 } from 'react-native';
 import {
@@ -13,14 +12,17 @@ import {
   ArrowDownToLine,
   TrendingUp,
   FileText,
-  ShieldCheck,
+  Landmark,
   CheckCircle2,
+  XCircle,
 } from 'lucide-react-native';
 import { colors } from '../../../theme/colors';
+import { PayoutReceiptModal } from './PayoutReceiptModal';
 
 interface WalletTabProps {
   wallet: any;
   transactions: any[];
+  payoutRequests?: any[];
   onRequestPayout: () => void;
   loading?: boolean;
 }
@@ -28,9 +30,11 @@ interface WalletTabProps {
 export function WalletTab({
   wallet,
   transactions,
+  payoutRequests = [],
   onRequestPayout,
   loading = false,
 }: WalletTabProps) {
+  const [selectedReceipt, setSelectedReceipt] = useState<any>(null);
   const formatPrice = (val: number) => '₦' + (val || 0).toLocaleString('en-NG');
 
   const availableBalance = wallet?.balance || 0;
@@ -74,6 +78,81 @@ export function WalletTab({
         </View>
       </View>
 
+      {/* Payout Requests History (Withdrawals) */}
+      {payoutRequests.length > 0 && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Withdrawal Requests</Text>
+            <View style={styles.badgePill}>
+              <Text style={styles.badgePillText}>{payoutRequests.length} LOGGED</Text>
+            </View>
+          </View>
+
+          <View style={styles.payoutList}>
+            {payoutRequests.map((req) => {
+              const status = (req.status || 'pending').toLowerCase();
+              const isCompleted = status === 'completed';
+              const isRejected = status === 'rejected';
+
+              const iconBg = isCompleted ? '#dcfce7' : isRejected ? '#fee2e2' : '#fef3c7';
+              const iconColor = isCompleted ? '#15803d' : isRejected ? '#b91c1c' : '#b45309';
+
+              const badgeBg = isCompleted ? '#dcfce7' : isRejected ? '#fee2e2' : '#fef3c7';
+              const badgeColor = isCompleted ? '#15803d' : isRejected ? '#b91c1c' : '#b45309';
+              const badgeLabel = isCompleted ? 'PAID' : isRejected ? 'REJECTED' : 'PENDING REVIEW';
+
+              return (
+                <TouchableOpacity
+                  key={req.id}
+                  style={styles.payoutCard}
+                  activeOpacity={0.7}
+                  onPress={() => setSelectedReceipt(req)}
+                >
+                  <View style={styles.payoutLeft}>
+                    <View style={[styles.payoutIconWrap, { backgroundColor: iconBg }]}>
+                      <Landmark size={18} color={iconColor} strokeWidth={2.5} />
+                    </View>
+                    <View style={styles.payoutMeta}>
+                      <Text style={styles.payoutTitle}>Withdrawal Request</Text>
+                      <View style={styles.payoutStatusRow}>
+                        <View style={[styles.statusBadge, { backgroundColor: badgeBg }]}>
+                          <Text style={[styles.statusBadgeText, { color: badgeColor }]}>
+                            {badgeLabel}
+                          </Text>
+                        </View>
+                        <Text style={styles.payoutDate}>
+                          {req.created_at
+                            ? new Date(req.created_at).toLocaleDateString('en-GB', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric',
+                              })
+                            : 'Pending'}
+                        </Text>
+                      </View>
+                      <Text style={styles.payoutBank}>
+                        {req.bank_name || 'Bank'} • {req.account_number || ''}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.payoutRight}>
+                    <Text style={styles.payoutAmount}>{formatPrice(Number(req.amount || 0))}</Text>
+                    <Text style={styles.payoutFee}>
+                      Fee: ₦{Number(req.fee_amount || 0).toLocaleString()}
+                    </Text>
+                    <View style={styles.receiptPill}>
+                      <FileText size={12} color="#64748b" />
+                      <Text style={styles.receiptPillText}>Receipt</Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
       {/* Transactions Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Transaction History</Text>
@@ -86,9 +165,13 @@ export function WalletTab({
         ) : transactions.length === 0 ? (
           <View style={styles.emptyCard}>
             <FileText size={36} color="#cbd5e1" />
-            <Text style={styles.emptyTitle}>No Transactions Yet</Text>
+            <Text style={styles.emptyTitle}>
+              {payoutRequests.length > 0 ? 'No Settled Orders Yet' : 'No Transactions Yet'}
+            </Text>
             <Text style={styles.emptySubtitle}>
-              Completed order payouts and withdrawals will be logged here.
+              {payoutRequests.length > 0
+                ? 'Your order escrow payouts and completions will appear here.'
+                : 'Completed order payouts and withdrawals will be logged here.'}
             </Text>
           </View>
         ) : (
@@ -149,6 +232,13 @@ export function WalletTab({
           </View>
         )}
       </View>
+
+      {/* Payout Receipt Details Modal */}
+      <PayoutReceiptModal
+        visible={!!selectedReceipt}
+        onClose={() => setSelectedReceipt(null)}
+        request={selectedReceipt}
+      />
     </View>
   );
 }
@@ -249,12 +339,127 @@ const styles = StyleSheet.create({
   section: {
     gap: 12,
   },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   sectionTitle: {
     fontSize: 13,
     fontWeight: '900',
     color: '#0f172a',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
+  },
+  badgePill: {
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  badgePillText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#64748b',
+    letterSpacing: 0.5,
+  },
+  payoutList: {
+    gap: 10,
+  },
+  payoutCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#ffffff',
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  payoutLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  payoutIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  payoutMeta: {
+    flex: 1,
+    gap: 2,
+  },
+  payoutTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#0f172a',
+  },
+  payoutStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
+  },
+  statusBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  statusBadgeText: {
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  payoutDate: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  payoutBank: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+    marginTop: 2,
+  },
+  payoutRight: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  payoutAmount: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#0f172a',
+  },
+  payoutFee: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#94a3b8',
+  },
+  receiptPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginTop: 4,
+  },
+  receiptPillText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#64748b',
   },
   centerLoading: {
     paddingVertical: 30,
@@ -363,4 +568,3 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
 });
-

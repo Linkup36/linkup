@@ -79,6 +79,7 @@ export function SellerDashboardScreen() {
 
   const [wallet, setWallet] = useState<any>({ balance: 0, escrow_balance: 0 });
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [payoutRequests, setPayoutRequests] = useState<any[]>([]);
   const [issues, setIssues] = useState<any[]>([]);
   const [settlements, setSettlements] = useState<any[]>([]);
   const [sellerProfile, setSellerProfile] = useState<any>(null);
@@ -180,27 +181,33 @@ export function SellerDashboardScreen() {
     }
   }, [user, ordersPage]);
 
-  // 3. Fetch Wallet & Transactions
+  // 3. Fetch Wallet, Transactions & Payout Requests
   const fetchWallet = useCallback(async () => {
     if (!user) return;
     try {
-      const { data: walletData } = await supabase
+      const { data: walletData, error: walletError } = await supabase
         .from('wallets')
         .select('id, balance, escrow_balance')
         .eq('user_id', user.id)
         .maybeSingle();
 
+      if (walletError) {
+        console.warn('Error fetching wallet:', walletError);
+      }
+
       if (walletData) {
         setWallet(walletData);
 
-        const { data: txData } = await supabase
+        const { data: txData, error: txError } = await supabase
           .from('wallet_transactions')
-          .select('id, amount, type, reference, created_at, status, metadata')
+          .select('id, amount, type, reference, created_at, status')
           .eq('wallet_id', walletData.id)
           .order('created_at', { ascending: false })
           .limit(20);
 
-        if (txData) {
+        if (txError) {
+          console.warn('Error fetching wallet transactions:', txError);
+        } else if (txData) {
           setTransactions(txData);
           const netRev = txData
             .filter((t) => t.type === 'settlement' || t.type === 'credit')
@@ -208,8 +215,22 @@ export function SellerDashboardScreen() {
           setMetrics((prev) => ({ ...prev, netRevenue: netRev }));
         }
       }
+
+      // Fetch Payout Requests History
+      const { data: pData, error: pError } = await supabase
+        .from('payout_requests')
+        .select('id, amount, fee_amount, status, created_at, bank_name, account_number, account_name, admin_notes')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (pError) {
+        console.warn('Error fetching payout requests:', pError);
+      } else if (pData) {
+        setPayoutRequests(pData);
+      }
     } catch (e) {
-      console.warn('Error fetching wallet:', e);
+      console.warn('Error fetching wallet data:', e);
     }
   }, [user]);
 
@@ -370,6 +391,29 @@ export function SellerDashboardScreen() {
           schema: 'public',
           table: 'wallets',
           filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          fetchWallet();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'payout_requests',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          fetchWallet();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'wallet_transactions',
         },
         () => {
           fetchWallet();
@@ -682,6 +726,7 @@ export function SellerDashboardScreen() {
           <WalletTab
             wallet={wallet}
             transactions={transactions}
+            payoutRequests={payoutRequests}
             onRequestPayout={() => setIsPayoutModalOpen(true)}
             loading={loading}
           />
