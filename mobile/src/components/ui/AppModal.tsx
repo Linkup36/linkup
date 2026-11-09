@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal,
   View,
@@ -11,6 +11,7 @@ import {
   TouchableWithoutFeedback,
   Dimensions,
   ActivityIndicator,
+  Keyboard,
 } from 'react-native';
 import { X, CheckCircle2, AlertTriangle, Info, AlertCircle } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
@@ -60,6 +61,34 @@ export function AppModal({
   avoidKeyboard = true,
   noPadding = false,
 }: AppModalProps) {
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const baseMaxHeight = typeof maxHeight === 'number' ? maxHeight : SCREEN_HEIGHT * 0.85;
+  const dynamicMaxHeight =
+    keyboardHeight > 0
+      ? Math.min(
+          baseMaxHeight,
+          SCREEN_HEIGHT - keyboardHeight - (Platform.OS === 'android' ? 24 : 40)
+        )
+      : baseMaxHeight;
+
   // Render status badge icon based on variant if no custom icon passed
   const renderStatusIcon = () => {
     if (icon) {
@@ -119,7 +148,7 @@ export function AppModal({
       <View
         style={[
           styles.modalCard,
-          { maxHeight },
+          { maxHeight: dynamicMaxHeight },
           noPadding && { paddingHorizontal: 0, paddingTop: 0, overflow: 'hidden' },
         ]}
       >
@@ -153,8 +182,13 @@ export function AppModal({
         {/* Scrollable Body */}
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.bodyContent, noPadding && { paddingBottom: 28 }]}
+          contentContainerStyle={[
+            styles.bodyContent,
+            noPadding && { paddingBottom: 28 },
+            keyboardHeight > 0 && { paddingBottom: Math.max(keyboardHeight * 0.75, 160) },
+          ]}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           {children}
         </ScrollView>
@@ -224,7 +258,8 @@ export function AppModal({
     >
       {avoidKeyboard ? (
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           style={styles.keyboardWrap}
         >
           {content}

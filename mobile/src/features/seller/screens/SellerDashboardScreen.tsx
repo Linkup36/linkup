@@ -43,6 +43,7 @@ import { ProfileTab } from '../components/ProfileTab';
 import { ProfileCompletionBanner } from '../components/ProfileCompletionBanner';
 import { EditProductModal } from '../components/EditProductModal';
 import { ZoneBroadcastModal } from '../components/ZoneBroadcastModal';
+import { PayoutRequestModal } from '../components/PayoutRequestModal';
 
 const PAGE_SIZE = 10;
 
@@ -65,6 +66,7 @@ export function SellerDashboardScreen() {
   const [broadcastOrderId, setBroadcastOrderId] = useState<string | null>(null);
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+  const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
 
   // Data States
   const [products, setProducts] = useState<any[]>([]);
@@ -680,7 +682,7 @@ export function SellerDashboardScreen() {
           <WalletTab
             wallet={wallet}
             transactions={transactions}
-            onRequestPayout={() => navigation.navigate('Wallet')}
+            onRequestPayout={() => setIsPayoutModalOpen(true)}
             loading={loading}
           />
         )}
@@ -734,6 +736,17 @@ export function SellerDashboardScreen() {
         defaultPickupAddress={
           sellerProfile?.verification?.business_address || sellerProfile?.address || undefined
         }
+      />
+
+      {/* Payout / Withdrawal Request Modal */}
+      <PayoutRequestModal
+        visible={isPayoutModalOpen}
+        onClose={() => setIsPayoutModalOpen(false)}
+        wallet={wallet}
+        onSuccess={() => {
+          fetchWallet();
+          fetchSettlements();
+        }}
       />
 
       {/* Sliding Sidebar Drawer */}

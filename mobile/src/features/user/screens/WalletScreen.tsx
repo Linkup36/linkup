@@ -11,6 +11,7 @@ import {
   Alert,
   ActivityIndicator,
   RefreshControl,
+  Keyboard,
 } from 'react-native';
 import { SafeView } from '../../../components/ui/SafeView';
 import { Button } from '../../../components/ui/Button';
@@ -107,6 +108,20 @@ export function WalletScreen() {
   useEffect(() => {
     fetchWalletData();
   }, [user]);
+
+  useEffect(() => {
+    if (isWithdrawOpen && profile) {
+      if ((profile as any).payout_bank_name && !bankName) {
+        setBankName((profile as any).payout_bank_name);
+      }
+      if ((profile as any).payout_account_number && !accountNumber) {
+        setAccountNumber((profile as any).payout_account_number);
+      }
+      if ((profile as any).payout_account_name && !accountName) {
+        setAccountName((profile as any).payout_account_name);
+      }
+    }
+  }, [isWithdrawOpen, profile]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -380,42 +395,119 @@ export function WalletScreen() {
         title="Withdraw to Bank"
         subtitle="Transfer funds to your Nigerian bank account"
       >
-        <Text style={styles.inputLabel}>Amount (₦)</Text>
-        <TextInput
-          placeholder="Min ₦1,000"
-          placeholderTextColor="#94a3b8"
-          keyboardType="numeric"
-          style={styles.modalInput}
-          value={withdrawAmount}
-          onChangeText={setWithdrawAmount}
-        />
+        <View style={styles.modalBody}>
+          {/* Available balance indicator */}
+          <View style={styles.availableRow}>
+            <Text style={styles.availableLabel}>Available Balance:</Text>
+            <Text style={styles.availableAmount}>
+              ₦{(wallet?.balance || 0).toLocaleString()}
+            </Text>
+          </View>
 
-        <Text style={[styles.inputLabel, { marginTop: 12 }]}>Bank Name</Text>
-        <TextInput
-          placeholder="e.g. GTBank, Access Bank, Kuda, OPay"
-          placeholderTextColor="#94a3b8"
-          style={styles.modalInput}
-          value={bankName}
-          onChangeText={setBankName}
-        />
+          {/* Amount input */}
+          <Text style={styles.inputLabel}>Withdrawal Amount (₦)</Text>
+          <View style={styles.amountInputWrap}>
+            <TextInput
+              placeholder="Min ₦1,000"
+              placeholderTextColor="#94a3b8"
+              keyboardType="numeric"
+              style={[styles.modalInput, styles.amountInput]}
+              value={withdrawAmount}
+              onChangeText={setWithdrawAmount}
+              returnKeyType="done"
+              onSubmitEditing={() => Keyboard.dismiss()}
+            />
+            {wallet && wallet.balance > 0 && (
+              <TouchableOpacity
+                style={styles.maxPill}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setWithdrawAmount(String(wallet.balance));
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.maxPillText}>MAX</Text>
+              </TouchableOpacity>
+            )}
+          </View>
 
-        <Text style={[styles.inputLabel, { marginTop: 12 }]}>10-Digit Account Number</Text>
-        <TextInput
-          placeholder="0123456789"
-          placeholderTextColor="#94a3b8"
-          keyboardType="numeric"
-          maxLength={10}
-          style={styles.modalInput}
-          value={accountNumber}
-          onChangeText={setAccountNumber}
-        />
+          {/* Quick Percentage Presets */}
+          {wallet && wallet.balance >= 1000 && (
+            <View style={styles.quickPills}>
+              {[
+                { label: '₦1,000', val: 1000 },
+                { label: '50%', val: Math.floor(wallet.balance * 0.5) },
+                { label: 'MAX', val: wallet.balance },
+              ].map((item, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={styles.pill}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setWithdrawAmount(String(item.val));
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.pillText}>
+                    {item.label} (₦{item.val.toLocaleString()})
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
-        <Button
-          title="Confirm Withdrawal"
-          onPress={handleRequestWithdrawal}
-          loading={submittingWithdraw}
-          style={{ marginTop: 20 }}
-        />
+          {/* Bank Name */}
+          <Text style={[styles.inputLabel, { marginTop: 14 }]}>Bank Name</Text>
+          <TextInput
+            placeholder="e.g. GTBank, Access Bank, Kuda, OPay"
+            placeholderTextColor="#94a3b8"
+            style={styles.modalInput}
+            value={bankName}
+            onChangeText={setBankName}
+            returnKeyType="next"
+          />
+
+          {/* 10-Digit Account Number */}
+          <Text style={[styles.inputLabel, { marginTop: 14 }]}>10-Digit Account Number</Text>
+          <TextInput
+            placeholder="0123456789"
+            placeholderTextColor="#94a3b8"
+            keyboardType="numeric"
+            maxLength={10}
+            style={styles.modalInput}
+            value={accountNumber}
+            onChangeText={setAccountNumber}
+            returnKeyType="next"
+          />
+
+          {/* Account Name */}
+          <Text style={[styles.inputLabel, { marginTop: 14 }]}>Account Name</Text>
+          <TextInput
+            placeholder="Account holder name"
+            placeholderTextColor="#94a3b8"
+            style={styles.modalInput}
+            value={accountName}
+            onChangeText={setAccountName}
+            returnKeyType="done"
+            onSubmitEditing={() => Keyboard.dismiss()}
+          />
+
+          {/* Dismiss Keyboard Shortcut */}
+          <TouchableOpacity
+            style={styles.dismissKbdRow}
+            onPress={() => Keyboard.dismiss()}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.dismissKbdText}>Tap here to collapse keyboard</Text>
+          </TouchableOpacity>
+
+          <Button
+            title="Confirm Withdrawal"
+            onPress={handleRequestWithdrawal}
+            loading={submittingWithdraw}
+            style={{ marginTop: 16 }}
+          />
+        </View>
       </AppModal>
     </SafeView>
   );
@@ -670,5 +762,61 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#4338ca',
+  },
+  modalBody: {
+    paddingVertical: 6,
+  },
+  availableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  availableLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#166534',
+  },
+  availableAmount: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#15803d',
+  },
+  amountInputWrap: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  amountInput: {
+    paddingRight: 68,
+  },
+  maxPill: {
+    position: 'absolute',
+    right: 10,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  maxPillText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#ffffff',
+  },
+  dismissKbdRow: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    marginTop: 6,
+  },
+  dismissKbdText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94a3b8',
+    textDecorationLine: 'underline',
   },
 });
