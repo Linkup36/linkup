@@ -1,11 +1,82 @@
 -- Migration: 20261109160000_withdrawal_fee_and_system_account.sql
--- Description: Handle withdrawal processing fee deduction and routing to system account upon approval
+-- Description: Ensure payout_requests, profiles, and system settings exist, handle fee deduction and routing
 
--- 1. Ensure profile columns exist for cross-compatibility
+-- 1. Ensure profile columns exist
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS display_name TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS payout_bank_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS payout_account_number TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS payout_account_name TEXT;
 
--- 2. Trigger for deducting wallet balance and fee on payout request placement
+-- 2. Ensure system_settings table and default withdrawal fee exist
+CREATE TABLE IF NOT EXISTS public.system_settings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    key TEXT NOT NULL UNIQUE,
+    value JSONB NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Public can read system settings" ON public.system_settings;
+CREATE POLICY "Public can read system settings" ON public.system_settings
+    FOR SELECT TO public USING (true);
+
+DROP POLICY IF EXISTS "Admins can manage system settings" ON public.system_settings;
+CREATE POLICY "Admins can manage system settings" ON public.system_settings
+    FOR ALL TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = auth.uid() AND role = 'admin'));
+
+INSERT INTO public.system_settings (key, value, description)
+VALUES ('withdrawal_fee', '{"amount": 100, "type": "flat"}'::jsonb, 'Standard withdrawal processing fee')
+ON CONFLICT (key) DO NOTHING;
+
+-- 3. Ensure payout_requests table and columns exist
+CREATE TABLE IF NOT EXISTS public.payout_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    wallet_id UUID REFERENCES public.wallets(id),
+    amount NUMERIC(10, 2) NOT NULL,
+    fee_amount NUMERIC(10, 2) DEFAULT 0,
+    status TEXT DEFAULT 'pending',
+    bank_name TEXT NOT NULL,
+    account_number TEXT NOT NULL,
+    account_name TEXT NOT NULL,
+    admin_notes TEXT,
+    processed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.payout_requests ADD COLUMN IF NOT EXISTS fee_amount NUMERIC(10, 2) DEFAULT 0;
+ALTER TABLE public.payout_requests ADD COLUMN IF NOT EXISTS wallet_id UUID REFERENCES public.wallets(id);
+ALTER TABLE public.payout_requests ADD COLUMN IF NOT EXISTS admin_notes TEXT;
+ALTER TABLE public.payout_requests ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
+
+-- Enable RLS and policies for payout_requests
+ALTER TABLE public.payout_requests ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own payout requests" ON public.payout_requests;
+CREATE POLICY "Users can view own payout requests" 
+ON public.payout_requests FOR SELECT 
+TO authenticated 
+USING (user_id = auth.uid() OR EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = auth.uid() AND role = 'admin'));
+
+DROP POLICY IF EXISTS "Users can create own payout requests" ON public.payout_requests;
+CREATE POLICY "Users can create own payout requests" 
+ON public.payout_requests FOR INSERT 
+TO authenticated 
+WITH CHECK (user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Admins can update payout requests" ON public.payout_requests;
+CREATE POLICY "Admins can update payout requests" 
+ON public.payout_requests FOR UPDATE 
+TO authenticated 
+USING (EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = auth.uid() AND role = 'admin'));
+
+-- 4. Trigger for deducting wallet balance and fee on payout request placement
 CREATE OR REPLACE FUNCTION public.handle_payout_request_insert()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -57,7 +128,7 @@ CREATE TRIGGER trigger_payout_request_insert
     EXECUTE FUNCTION public.handle_payout_request_insert();
 
 
--- 3. Trigger for handling payout approval (crediting fee to admin/system account) or rejection (refunding user)
+-- 5. Trigger for handling payout approval (crediting fee to admin/system account) or rejection (refunding user)
 CREATE OR REPLACE FUNCTION public.handle_payout_request_status_change()
 RETURNS TRIGGER AS $$
 DECLARE
