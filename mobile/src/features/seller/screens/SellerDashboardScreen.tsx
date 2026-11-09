@@ -1,78 +1,134 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
-  Image,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeView } from '../../../components/ui/SafeView';
-import { Button } from '../../../components/ui/Button';
 import { useAuth } from '../../../context/AuthContext';
 import { supabase } from '../../../services/supabase';
-import {
-  TrendingUp,
-  Package,
-  ShoppingBag,
-  Plus,
-  ShieldCheck,
-  ArrowLeft,
-  ChevronRight,
-  Wallet,
-  MapPin,
-  Clock,
-  EyeOff,
-  CheckCircle,
-} from 'lucide-react-native';
+import { colors } from '../../../theme/colors';
+import { toast } from '../../../components/ui';
+import * as Haptics from 'expo-haptics';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../../navigation/types';
+import {
+  Menu,
+  Plus,
+  Wallet,
+  ArrowLeft,
+  Package,
+  ShoppingBag,
+  AlertCircle,
+  TrendingUp,
+  CreditCard,
+  UserCheck,
+} from 'lucide-react-native';
+
+// Modular Components
+import { SellerSidebar, SellerTab, SELLER_TABS } from '../components/SellerSidebar';
+import { InventoryTab } from '../components/InventoryTab';
+import { OrdersTab } from '../components/OrdersTab';
+import { WalletTab } from '../components/WalletTab';
+import { AnalyticsTab } from '../components/AnalyticsTab';
+import { IssuesTab } from '../components/IssuesTab';
+import { PaymentReconciliationTab } from '../components/PaymentReconciliationTab';
+import { ProfileTab } from '../components/ProfileTab';
+import { ProfileCompletionBanner } from '../components/ProfileCompletionBanner';
+import { EditProductModal } from '../components/EditProductModal';
+import { ZoneBroadcastModal } from '../components/ZoneBroadcastModal';
+
+const PAGE_SIZE = 10;
 
 export function SellerDashboardScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { user, profile } = useAuth();
-  const scrollRef = useRef<ScrollView>(null);
+  const { user, profile, refreshProfile, signOut } = useAuth();
+
+  // Active Tab
+  const [activeTab, setActiveTab] = useState<SellerTab>('products');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // Loading States
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+
+  // Modals State
+  const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [broadcastOrderId, setBroadcastOrderId] = useState<string | null>(null);
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+
+  // Data States
+  const [products, setProducts] = useState<any[]>([]);
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [productsPage, setProductsPage] = useState(0);
+
+  const [orders, setOrders] = useState<any[]>([]);
+  const [totalOrders, setTotalOrders] = useState(0);
+  const [ordersPage, setOrdersPage] = useState(0);
+
+  const [wallet, setWallet] = useState<any>({ balance: 0, escrow_balance: 0 });
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [issues, setIssues] = useState<any[]>([]);
+  const [settlements, setSettlements] = useState<any[]>([]);
+  const [sellerProfile, setSellerProfile] = useState<any>(null);
 
   const [metrics, setMetrics] = useState({
     totalRevenue: 0,
-    activeListings: 0,
-    pendingOrders: 0,
+    netRevenue: 0,
+    pendingOrdersCount: 0,
+    openIssuesCount: 0,
   });
-  const [orders, setOrders] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
 
-  const fetchSellerMetrics = async () => {
+  // 1. Fetch Products
+  const fetchProducts = useCallback(async () => {
     if (!user) return;
     try {
-      // 1. Fetch active listings count
-      const { count: productCount } = await supabase
+      const from = productsPage * PAGE_SIZE;
+      const to = (productsPage + 1) * PAGE_SIZE - 1;
+
+      const { data, count, error } = await supabase
         .from('products')
-        .select('*', { count: 'exact', head: true })
-        .eq('seller_id', user.id);
+        .select('id, title, price, inventory, images, description, is_active, category, sizes', {
+          count: 'exact',
+        })
+        .eq('seller_id', user.id)
+        .order('created_at', { ascending: false })
+        .range(from, to);
 
-      // 2. Fetch seller orders count
-      const { data: orderItems } = await supabase
-        .from('order_items')
-        .select('product_id, products!inner(price, seller_id)')
-        .eq('products.seller_id', user.id);
+      if (!error && data) {
+        setProducts(data);
+        setTotalProducts(count || 0);
+      }
+    } catch (e) {
+      console.warn('Error fetching seller products:', e);
+    }
+  }, [user, productsPage]);
 
-      const totalRev = (orderItems || []).reduce(
-        (acc: number, curr: any) => acc + (curr.products?.price || 0),
-        0
-      );
+  // 2. Fetch Orders (Strict privacy: buyer phone/email hidden)
+  const fetchOrders = useCallback(async () => {
+    if (!user) return;
+    try {
+      const from = ordersPage * PAGE_SIZE;
+      const to = (ordersPage + 1) * PAGE_SIZE - 1;
 
-      // 3. Fetch actual seller orders (strictly omitting buyer phone/email for privacy)
-      const { data: sellerOrders } = await supabase
+      const { data, count, error } = await supabase
         .from('orders')
-        .select(`
-          id,
-          status,
-          created_at,
-          total_amount,
+        .select(
+          `
+          id, status, created_at, grand_total, total_amount,
+          order_settlements (
+            seller_amount,
+            status
+          ),
           order_items (
             id,
             product_id,
@@ -88,330 +144,617 @@ export function SellerDashboardScreen() {
           order_recipient (
             full_name,
             address_line,
+            city_id,
+            zone_id,
             cities (name),
             delivery_zones (name)
           ),
           shipments (
             id,
             status,
-            tracking_code
+            tracking_code,
+            zone_id,
+            delivery_fee,
+            profiles:rider_id (display_name),
+            delivery_zones (name)
           )
-        `)
+        `,
+          { count: 'exact' }
+        )
+        .eq('seller_id', user.id)
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+      if (!error && data) {
+        setOrders(data);
+        setTotalOrders(count || 0);
+
+        // Count pending orders
+        const pendingCount = data.filter((o) => o.status === 'pending').length;
+        setMetrics((prev) => ({ ...prev, pendingOrdersCount: pendingCount }));
+      }
+    } catch (e) {
+      console.warn('Error fetching seller orders:', e);
+    }
+  }, [user, ordersPage]);
+
+  // 3. Fetch Wallet & Transactions
+  const fetchWallet = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data: walletData } = await supabase
+        .from('wallets')
+        .select('id, balance, escrow_balance')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (walletData) {
+        setWallet(walletData);
+
+        const { data: txData } = await supabase
+          .from('wallet_transactions')
+          .select('id, amount, type, reference, created_at, status, metadata')
+          .eq('wallet_id', walletData.id)
+          .order('created_at', { ascending: false })
+          .limit(20);
+
+        if (txData) {
+          setTransactions(txData);
+          const netRev = txData
+            .filter((t) => t.type === 'settlement' || t.type === 'credit')
+            .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+          setMetrics((prev) => ({ ...prev, netRevenue: netRev }));
+        }
+      }
+    } catch (e) {
+      console.warn('Error fetching wallet:', e);
+    }
+  }, [user]);
+
+  // 4. Fetch Issues
+  const fetchIssues = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data, count } = await (supabase as any)
+        .from('issues')
+        .select('id, title, description, status, priority, created_at, order_id', { count: 'exact' })
         .eq('seller_id', user.id)
         .order('created_at', { ascending: false })
         .limit(20);
 
-      setMetrics({
-        totalRevenue: totalRev,
-        activeListings: productCount || 0,
-        pendingOrders: (orderItems || []).length,
-      });
-
-      if (sellerOrders) {
-        setOrders(sellerOrders);
+      if (data) {
+        setIssues(data);
+        const openCount = data.filter((i: any) => i.status === 'open').length;
+        setMetrics((prev) => ({ ...prev, openIssuesCount: openCount }));
       }
     } catch (e) {
-      console.warn('[SellerDashboard] Error fetching stats:', e);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      console.warn('Error fetching issues:', e);
     }
-  };
+  }, [user]);
+
+  // 5. Fetch Payment Reconciliation Records
+  const fetchSettlements = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await (supabase as any)
+        .from('order_settlements')
+        .select(`
+          id,
+          order_id,
+          status,
+          created_at,
+          seller_amount,
+          orders!inner (
+            id,
+            grand_total,
+            payment_status,
+            payment_ref,
+            payment_method,
+            created_at,
+            status
+          )
+        `)
+        .eq('orders.seller_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      if (!error && data) {
+        const mapped = data.map((settlement: any) => ({
+          id: settlement.orders?.id || settlement.order_id,
+          grand_total: settlement.orders?.grand_total,
+          status: settlement.orders?.status,
+          payment_status: settlement.orders?.payment_status,
+          payment_ref: settlement.orders?.payment_ref,
+          payment_method: settlement.orders?.payment_method,
+          created_at: settlement.orders?.created_at || settlement.created_at,
+          settlement_status: settlement.status,
+          seller_amount: settlement.seller_amount,
+        }));
+        setSettlements(mapped);
+
+        const totalSales = mapped.reduce(
+          (sum: number, s: any) => sum + (Number(s.seller_amount) || Number(s.grand_total) || 0),
+          0
+        );
+        setMetrics((prev) => ({ ...prev, totalRevenue: totalSales }));
+      }
+    } catch (e) {
+      console.warn('Error fetching settlements:', e);
+    }
+  }, [user]);
+
+  // 6. Fetch Full Profile & Verification Details
+  const fetchProfileDetails = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select(
+          'id, user_id, display_name, phone, bio, email, address, city_id, zone_id, payout_bank_name, payout_account_number, payout_account_name'
+        )
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      const { data: verif } = await supabase
+        .from('seller_verifications')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      setSellerProfile({
+        ...(prof || profile),
+        verification: verif,
+      });
+    } catch (e) {
+      console.warn('Error fetching profile details:', e);
+    }
+  }, [user, profile]);
+
+  // Initial Load
+  const loadAllData = useCallback(async () => {
+    setLoading(true);
+    await Promise.all([
+      fetchProducts(),
+      fetchOrders(),
+      fetchWallet(),
+      fetchIssues(),
+      fetchSettlements(),
+      fetchProfileDetails(),
+    ]);
+    setLoading(false);
+    setRefreshing(false);
+  }, [
+    fetchProducts,
+    fetchOrders,
+    fetchWallet,
+    fetchIssues,
+    fetchSettlements,
+    fetchProfileDetails,
+  ]);
 
   useEffect(() => {
-    fetchSellerMetrics();
-  }, [user]);
+    loadAllData();
+  }, [loadAllData]);
+
+  // Realtime Subscriptions for Orders & Wallet
+  useEffect(() => {
+    if (!user) return;
+
+    const orderCh = supabase
+      .channel(`mobile-seller-orders-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders',
+          filter: `seller_id=eq.${user.id}`,
+        },
+        () => {
+          fetchOrders();
+          fetchSettlements();
+        }
+      )
+      .subscribe();
+
+    const walletCh = supabase
+      .channel(`mobile-seller-wallet-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'wallets',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          fetchWallet();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(orderCh);
+      supabase.removeChannel(walletCh);
+    };
+  }, [user, fetchOrders, fetchSettlements, fetchWallet]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchSellerMetrics();
+    loadAllData();
   };
 
-  const formatPrice = (val: number) => '₦' + val.toLocaleString('en-NG');
-
-  const getOrderStatusMeta = (rawStatus: string) => {
-    const s = (rawStatus || 'pending').toLowerCase();
-    switch (s) {
-      case 'completed':
-        return { label: 'Completed & Settled', bg: '#dcfce7', color: '#15803d' };
-      case 'delivered':
-        return { label: 'Delivered • Awaiting Buyer Confirmation', bg: '#fef3c7', color: '#b45309' };
-      case 'out_for_delivery':
-      case 'in_transit':
-      case 'picked_up':
-      case 'started':
-        return { label: 'In Transit with Courier', bg: '#ffedd5', color: '#ea580c' };
-      case 'awaiting_agent':
-      case 'broadcast':
-        return { label: 'Finding Courier Partner', bg: '#e0e7ff', color: '#4338ca' };
-      case 'accepted':
-      case 'assigned':
-        return { label: 'Courier Assigned', bg: '#e0e7ff', color: '#4338ca' };
-      case 'disputed':
-        return { label: 'Dispute Under Review', bg: '#fee2e2', color: '#dc2626' };
-      case 'cancelled':
-        return { label: 'Cancelled', bg: '#f1f5f9', color: '#64748b' };
-      default:
-        return { label: 'Order Confirmed', bg: '#fef9c3', color: '#a16207' };
+  // Actions
+  const handleToggleProductStatus = async (productId: string, isActive: boolean) => {
+    try {
+      Haptics.selectionAsync().catch(() => {});
+      const { error } = await (supabase as any)
+        .from('products')
+        .update({ is_active: isActive })
+        .eq('id', productId);
+      if (error) throw error;
+      setProducts((prev) =>
+        prev.map((p) => (p.id === productId ? { ...p, is_active: isActive } : p))
+      );
+      toast.success('Product Availability Updated');
+    } catch (e: any) {
+      toast.error('Update Failed: ' + e.message);
     }
   };
 
-  const scrollToOrders = () => {
-    scrollRef.current?.scrollTo({ y: 340, animated: true });
+  const handleDeleteProduct = async (productId: string) => {
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+      const { error } = await supabase.from('products').delete().eq('id', productId);
+      if (error) throw error;
+      setProducts((prev) => prev.filter((p) => p.id !== productId));
+      setTotalProducts((prev) => Math.max(0, prev - 1));
+      toast.success('Product removed from inventory');
+    } catch (e: any) {
+      toast.error('Delete Failed: ' + e.message);
+    }
+  };
+
+  const handleSaveProductEdit = async (updatedProduct: any) => {
+    setIsSavingProduct(true);
+    try {
+      const { error } = await supabase
+        .from('products')
+        .update({
+          title: updatedProduct.title,
+          price: updatedProduct.price,
+          inventory: updatedProduct.inventory,
+          description: updatedProduct.description,
+        })
+        .eq('id', updatedProduct.id);
+
+      if (error) throw error;
+      toast.success('Product updated successfully');
+      setEditingProduct(null);
+      fetchProducts();
+    } catch (e: any) {
+      toast.error('Failed to update product: ' + e.message);
+    } finally {
+      setIsSavingProduct(false);
+    }
+  };
+
+  const handleUpdateOrderStatus = async (orderId: string, status: string) => {
+    setUpdatingOrderId(orderId);
+    try {
+      Haptics.selectionAsync().catch(() => {});
+      const { error } = await supabase.from('orders').update({ status }).eq('id', orderId);
+      if (error) throw error;
+      toast.success('Order status updated');
+      fetchOrders();
+    } catch (e: any) {
+      toast.error('Failed to update order: ' + e.message);
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const handleBroadcastOrder = async (
+    zone: string,
+    zoneId: string,
+    pickupAddress: string,
+    pickupTime: string
+  ) => {
+    if (!broadcastOrderId) return;
+    setIsBroadcasting(true);
+    try {
+      const order = orders.find((o) => o.id === broadcastOrderId);
+      const recipient = order?.order_recipient || {};
+      const deliveryAddress = `${recipient.address_line || ''}, ${recipient.cities?.name || ''}, ${
+        recipient.delivery_zones?.name || ''
+      }`;
+
+      // Invoke broadcast-order edge function with fallback
+      const { data, error } = await supabase.functions.invoke('broadcast-order', {
+        body: {
+          id: broadcastOrderId,
+          zone,
+          zoneId,
+          cityId: (sellerProfile as any)?.city_id,
+          pickupAddress,
+          deliveryAddress,
+          pickupTime,
+        },
+      });
+
+      if (error || !data?.success) {
+        // Fallback update order status to awaiting_agent directly
+        await supabase.from('orders').update({ status: 'awaiting_agent' }).eq('id', broadcastOrderId);
+      }
+
+      toast.success('Order broadcasted! Waiting for an agent to claim.');
+      setBroadcastOrderId(null);
+      fetchOrders();
+    } catch (e: any) {
+      toast.error('Broadcast note: ' + (e.message || 'Updated status to finding partner'));
+      setBroadcastOrderId(null);
+      fetchOrders();
+    } finally {
+      setIsBroadcasting(false);
+    }
+  };
+
+  const handleUpdateProfile = async (formData: any) => {
+    if (!user) return;
+    setIsUpdatingProfile(true);
+    try {
+      const { error: profError } = await supabase
+        .from('profiles')
+        .update({
+          display_name: formData.display_name,
+          phone: formData.phone,
+          bio: formData.bio,
+          email: formData.email,
+          payout_bank_name: formData.payout_bank_name,
+          payout_account_number: formData.payout_account_number,
+          payout_account_name: formData.payout_account_name,
+        })
+        .eq('user_id', user.id);
+
+      if (profError) throw profError;
+
+      if (formData.business_name || formData.business_address) {
+        await supabase
+          .from('seller_verifications')
+          .update({
+            business_name: formData.business_name,
+            business_address: formData.business_address,
+          })
+          .eq('user_id', user.id);
+      }
+
+      toast.success('Store profile updated successfully');
+      refreshProfile();
+      fetchProfileDetails();
+    } catch (e: any) {
+      toast.error('Profile update failed: ' + e.message);
+    } finally {
+      setIsUpdatingProfile(false);
+    }
+  };
+
+  const handleTabChange = (tab: SellerTab) => {
+    Haptics.selectionAsync().catch(() => {});
+    if (tab === 'list-product') {
+      navigation.navigate('ListProduct', {});
+      return;
+    }
+    setActiveTab(tab);
   };
 
   return (
     <SafeView>
-      {/* Top Header */}
+      {/* Top Header matching Web Navbar */}
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <ArrowLeft size={20} color="#0f172a" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Merchant Dashboard</Text>
-        <TouchableOpacity
-          style={styles.addBtn}
-          onPress={() => navigation.navigate('ListProduct', {})}
-        >
-          <Plus size={20} color="#4f46e5" />
-        </TouchableOpacity>
+        <View style={styles.topLeft}>
+          <TouchableOpacity
+            style={styles.menuBtn}
+            onPress={() => setIsSidebarOpen(true)}
+            activeOpacity={0.7}
+          >
+            <Menu size={20} color="#0f172a" />
+          </TouchableOpacity>
+          <View>
+            <Text style={styles.brandTitle}>LinkUp</Text>
+            <Text style={styles.brandBadge}>Merchant Portal</Text>
+          </View>
+        </View>
+
+        <View style={styles.topRight}>
+          <TouchableOpacity
+            style={styles.addShortcutBtn}
+            onPress={() => navigation.navigate('ListProduct', {})}
+            activeOpacity={0.8}
+          >
+            <Plus size={18} color="#ffffff" strokeWidth={3} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.walletShortcutBtn}
+            onPress={() => setActiveTab('wallet')}
+            activeOpacity={0.8}
+          >
+            <Wallet size={18} color={colors.primary} />
+            <Text style={styles.walletShortcutText}>
+              ₦{(wallet?.balance || 0).toLocaleString()}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
+      {/* Horizontal Tabs Quick Switcher */}
+      <View style={styles.tabsBar}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabsScrollContent}
+        >
+          {SELLER_TABS.map(({ id, label, icon: Icon }) => {
+            const isActive = activeTab === id;
+            const hasBadge =
+              (id === 'orders' && metrics.pendingOrdersCount > 0) ||
+              (id === 'issues' && metrics.openIssuesCount > 0);
+
+            return (
+              <TouchableOpacity
+                key={id}
+                style={[styles.tabPill, isActive && styles.tabPillActive]}
+                onPress={() => handleTabChange(id)}
+                activeOpacity={0.75}
+              >
+                <Icon
+                  size={15}
+                  color={isActive ? '#ffffff' : '#475569'}
+                  strokeWidth={isActive ? 2.5 : 2}
+                />
+                <Text style={[styles.tabPillText, isActive && styles.tabPillTextActive]}>
+                  {label}
+                </Text>
+                {hasBadge && (
+                  <View style={styles.tabDot} />
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* Scrollable Content */}
       <ScrollView
-        contentContainerStyle={styles.scroll}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4f46e5']} />}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
       >
-        {/* Verification Alert Banner */}
-        {profile?.kyc_status !== 'verified' && (
-          <TouchableOpacity
-            style={styles.kycBanner}
-            onPress={() => navigation.navigate('SellerVerification')}
-            activeOpacity={0.8}
-          >
-            <View style={styles.kycLeft}>
-              <ShieldCheck size={20} color="#d97706" />
-              <View>
-                <Text style={styles.kycTitle}>Complete Identity KYC</Text>
-                <Text style={styles.kycSubtitle}>Unlock instant payouts & trust badge</Text>
-              </View>
-            </View>
-            <ChevronRight size={18} color="#d97706" />
-          </TouchableOpacity>
+        {/* Profile Completion Warning Banner */}
+        <ProfileCompletionBanner
+          profile={sellerProfile || profile}
+          onAction={() => setActiveTab('profile')}
+        />
+
+        {/* Tab 1: Products / Inventory */}
+        {activeTab === 'products' && (
+          <InventoryTab
+            products={products}
+            totalProducts={totalProducts}
+            productsPage={productsPage}
+            setProductsPage={setProductsPage}
+            pageSize={PAGE_SIZE}
+            onEditProduct={(p) => setEditingProduct(p)}
+            onDeleteProduct={handleDeleteProduct}
+            onToggleStatus={handleToggleProductStatus}
+            onListProduct={() => navigation.navigate('ListProduct', {})}
+            loading={loading}
+          />
         )}
 
-        {/* Metric Cards Grid */}
-        <View style={styles.grid}>
-          <View style={styles.metricCard}>
-            <TrendingUp size={22} color="#16a34a" />
-            <Text style={styles.metricLabel}>Total Sales</Text>
-            <Text style={styles.metricValue}>
-              {loading ? '...' : formatPrice(metrics.totalRevenue)}
-            </Text>
-          </View>
+        {/* Tab 2: Orders */}
+        {activeTab === 'orders' && (
+          <OrdersTab
+            orders={orders}
+            totalOrders={totalOrders}
+            ordersPage={ordersPage}
+            setOrdersPage={setOrdersPage}
+            pageSize={PAGE_SIZE}
+            onUpdateStatus={handleUpdateOrderStatus}
+            onInitiateBroadcast={(orderId) => setBroadcastOrderId(orderId)}
+            updatingOrderId={updatingOrderId}
+            loading={loading}
+          />
+        )}
 
-          <View style={styles.metricCard}>
-            <Package size={22} color="#4f46e5" />
-            <Text style={styles.metricLabel}>Active Listings</Text>
-            <Text style={styles.metricValue}>
-              {loading ? '...' : metrics.activeListings}
-            </Text>
-          </View>
+        {/* Tab 3: Wallet */}
+        {activeTab === 'wallet' && (
+          <WalletTab
+            wallet={wallet}
+            transactions={transactions}
+            onRequestPayout={() => navigation.navigate('Wallet')}
+            loading={loading}
+          />
+        )}
 
-          <TouchableOpacity
-            style={styles.metricCard}
-            onPress={scrollToOrders}
-            activeOpacity={0.8}
-          >
-            <ShoppingBag size={22} color="#ea580c" />
-            <Text style={styles.metricLabel}>Incoming Orders</Text>
-            <Text style={styles.metricValue}>
-              {loading ? '...' : metrics.pendingOrders}
-            </Text>
-          </TouchableOpacity>
+        {/* Tab 4: Insights / Analytics */}
+        {activeTab === 'analytics' && (
+          <AnalyticsTab
+            revenue={metrics.totalRevenue}
+            netRevenue={metrics.netRevenue}
+            escrowBalance={wallet?.escrow_balance || 0}
+            totalOrders={totalOrders}
+          />
+        )}
 
-          <TouchableOpacity
-            style={[styles.metricCard, styles.walletCard]}
-            onPress={() => navigation.navigate('Wallet')}
-          >
-            <Wallet size={22} color="#ffffff" />
-            <Text style={[styles.metricLabel, { color: '#cbd5e1' }]}>Wallet Payouts</Text>
-            <Text style={[styles.metricValue, { color: '#ffffff' }]}>Manage</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Tab 5: Issues */}
+        {activeTab === 'issues' && (
+          <IssuesTab issues={issues} loading={loading} />
+        )}
 
-        {/* Quick Actions */}
-        <Text style={styles.sectionHeader}>Quick Actions</Text>
-        <Button
-          title="Create New Product Listing"
-          onPress={() => navigation.navigate('ListProduct', {})}
-          style={{ marginBottom: 12 }}
-        />
+        {/* Tab 6: Payment Reconciliation */}
+        {activeTab === 'payments' && (
+          <PaymentReconciliationTab settlements={settlements} loading={loading} />
+        )}
 
-        <Button
-          title="Verify Merchant KYC"
-          variant="outline"
-          onPress={() => navigation.navigate('SellerVerification')}
-          style={{ marginBottom: 28 }}
-        />
-
-        {/* Incoming Orders Section */}
-        <View style={styles.ordersSectionHeaderRow}>
-          <View>
-            <Text style={styles.sectionHeaderDark}>Incoming Customer Orders</Text>
-            <Text style={styles.sectionSubDark}>
-              Orders placed by LinkUp buyers for your inventory
-            </Text>
-          </View>
-          <View style={styles.orderCountPill}>
-            <Text style={styles.orderCountPillText}>{orders.length}</Text>
-          </View>
-        </View>
-
-        {loading ? (
-          <View style={styles.centerLoading}>
-            <ActivityIndicator size="small" color="#4f46e5" />
-            <Text style={styles.centerLoadingText}>Loading orders...</Text>
-          </View>
-        ) : orders.length === 0 ? (
-          <View style={styles.emptyOrdersCard}>
-            <ShoppingBag size={36} color="#94a3b8" />
-            <Text style={styles.emptyOrdersTitle}>No Incoming Orders</Text>
-            <Text style={styles.emptyOrdersSub}>
-              When buyers purchase your items, they will appear here with automated courier dispatch tracking.
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.ordersList}>
-            {orders.map((o) => {
-              const recipient = Array.isArray(o.order_recipient)
-                ? o.order_recipient[0]
-                : o.order_recipient;
-              const shipment = Array.isArray(o.shipments) ? o.shipments[0] : o.shipments;
-              const statusMeta = getOrderStatusMeta(o.status);
-              const isDeliveredAwaitingConfirmation = o.status?.toLowerCase() === 'delivered';
-              const isOrderCompleted = o.status?.toLowerCase() === 'completed';
-
-              return (
-                <View key={o.id} style={styles.orderCard}>
-                  {/* Order Top Bar */}
-                  <View style={styles.orderTopBar}>
-                    <View style={styles.orderRefWrap}>
-                      <Text style={styles.orderRefText}>#{o.id.slice(0, 8).toUpperCase()}</Text>
-                      <Text style={styles.orderDateText}>
-                        {new Date(o.created_at).toLocaleDateString('en-GB', {
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
-                        })}
-                      </Text>
-                    </View>
-
-                    <View style={[styles.statusBadge, { backgroundColor: statusMeta.bg }]}>
-                      <Text style={[styles.statusBadgeText, { color: statusMeta.color }]}>
-                        {statusMeta.label}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Order Items */}
-                  <View style={styles.orderItemsWrap}>
-                    {(o.order_items || []).map((item: any, idx: number) => {
-                      const prod = item.products || {};
-                      const img = prod.images?.[0] || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=200';
-                      return (
-                        <View key={item.id || idx} style={styles.orderItemRow}>
-                          <Image source={{ uri: img }} style={styles.itemThumb} resizeMode="cover" />
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.itemTitle} numberOfLines={1}>
-                              {prod.title || 'Product'}
-                            </Text>
-                            <View style={styles.itemMetaRow}>
-                              <Text style={styles.itemQty}>Qty: {item.quantity || 1}</Text>
-                              {item.size ? (
-                                <View style={styles.itemSizeBadge}>
-                                  <Text style={styles.itemSizeText}>Size: {item.size}</Text>
-                                </View>
-                              ) : null}
-                            </View>
-                          </View>
-                          <Text style={styles.itemPrice}>
-                            ₦{Math.round(item.price_at_purchase || prod.price || 0).toLocaleString('en-NG')}
-                          </Text>
-                        </View>
-                      );
-                    })}
-                  </View>
-
-                  {/* Destination & Privacy Shield Section */}
-                  <View style={styles.destinationCard}>
-                    <View style={styles.destHeader}>
-                      <MapPin size={13} color="#ea580c" />
-                      <Text style={styles.destHeaderTitle}>DELIVERY DESTINATION</Text>
-                    </View>
-
-                    <Text style={styles.destCustomerName}>
-                      {recipient?.full_name || 'LinkUp Customer'}
-                    </Text>
-                    <Text style={styles.destAddress}>
-                      {recipient?.address_line || 'Delivery Address Provided to Courier'}
-                    </Text>
-
-                    <View style={styles.zonePillsRow}>
-                      {recipient?.cities?.name && (
-                        <View style={styles.zonePill}>
-                          <Text style={styles.zonePillText}>{recipient.cities.name}</Text>
-                        </View>
-                      )}
-                      {recipient?.delivery_zones?.name && (
-                        <View style={styles.zonePill}>
-                          <Text style={styles.zonePillText}>{recipient.delivery_zones.name}</Text>
-                        </View>
-                      )}
-                    </View>
-
-                    {/* PRIVACY PROTECTION: Buyer Contact Hidden from Seller */}
-                    <View style={styles.privacyShieldBox}>
-                      <View style={styles.privacyShieldTop}>
-                        <EyeOff size={14} color="#059669" />
-                        <Text style={styles.privacyShieldTitle}>Buyer Contact Protected</Text>
-                      </View>
-                      <Text style={styles.privacyShieldDesc}>
-                        Buyer phone number and email are kept hidden for customer privacy and escrow security. Linkup Courier Partners coordinate pickup and delivery directly.
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Shipment Tracking Info if assigned */}
-                  {shipment && shipment.tracking_code ? (
-                    <View style={styles.shipmentTrackingBar}>
-                      <Text style={styles.shipmentTrackingLabel}>COURIER TRACKING:</Text>
-                      <Text style={styles.shipmentTrackingCode}>{shipment.tracking_code}</Text>
-                    </View>
-                  ) : null}
-
-                  {/* Lifecycle Settlement Guidance */}
-                  {isDeliveredAwaitingConfirmation && (
-                    <View style={styles.escrowNoticeCard}>
-                      <Clock size={14} color="#b45309" />
-                      <Text style={styles.escrowNoticeText}>
-                        Courier has delivered this order. Escrow payout will be released to your wallet as soon as the buyer physically confirms receipt on their mobile app.
-                      </Text>
-                    </View>
-                  )}
-
-                  {isOrderCompleted && (
-                    <View style={styles.completedNoticeCard}>
-                      <CheckCircle size={14} color="#16a34a" />
-                      <Text style={styles.completedNoticeText}>
-                        Order confirmed received by buyer. Escrow funds settled to your LinkUp Wallet.
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              );
-            })}
-          </View>
+        {/* Tab 7: Profile */}
+        {activeTab === 'profile' && (
+          <ProfileTab
+            profile={sellerProfile || profile}
+            onUpdate={handleUpdateProfile}
+            isUpdating={isUpdatingProfile}
+            onNavigateKYC={() => navigation.navigate('SellerVerification')}
+          />
         )}
       </ScrollView>
+
+      {/* Edit Product Modal */}
+      <EditProductModal
+        product={editingProduct}
+        onClose={() => setEditingProduct(null)}
+        onSave={handleSaveProductEdit}
+        isSaving={isSavingProduct}
+      />
+
+      {/* Zone Broadcast Modal */}
+      <ZoneBroadcastModal
+        visible={Boolean(broadcastOrderId)}
+        onClose={() => setBroadcastOrderId(null)}
+        onBroadcast={handleBroadcastOrder}
+        isBroadcasting={isBroadcasting}
+        defaultZone={(sellerProfile as any)?.zone || undefined}
+        defaultPickupAddress={
+          sellerProfile?.verification?.business_address || sellerProfile?.address || undefined
+        }
+      />
+
+      {/* Sliding Sidebar Drawer */}
+      <SellerSidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        activeTab={activeTab}
+        onSelectTab={handleTabChange}
+        pendingOrdersCount={metrics.pendingOrdersCount}
+        openIssuesCount={metrics.openIssuesCount}
+        profile={sellerProfile || profile}
+        wallet={wallet}
+        onExitToStore={() => navigation.navigate('Main', { screen: 'Home' } as any)}
+        onLogout={async () => {
+          await signOut();
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'Login' }],
+          });
+        }}
+      />
     </SafeView>
   );
 }
@@ -423,382 +766,115 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
+    backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
   },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: '#f8fafc',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: '#eef2ff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  scroll: {
-    padding: 20,
-    paddingBottom: 60,
-  },
-  kycBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#fef3c7',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 20,
-  },
-  kycLeft: {
+  topLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  kycTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#92400e',
-  },
-  kycSubtitle: {
-    fontSize: 12,
-    color: '#b45309',
-    marginTop: 2,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 24,
-  },
-  metricCard: {
-    width: '48%',
+  menuBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: '#f8fafc',
-    borderRadius: 18,
-    padding: 16,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-  },
-  walletCard: {
-    backgroundColor: '#1e1b4b',
-    borderColor: '#1e1b4b',
-  },
-  metricLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#64748b',
-    marginTop: 10,
-  },
-  metricValue: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#0f172a',
-    marginTop: 2,
-  },
-  sectionHeader: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#64748b',
-    textTransform: 'uppercase',
-    marginBottom: 12,
-    letterSpacing: 0.5,
-  },
-  ordersSectionHeaderRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
+    justifyContent: 'center',
   },
-  sectionHeaderDark: {
+  brandTitle: {
     fontSize: 16,
     fontWeight: '900',
     color: '#0f172a',
+    letterSpacing: -0.3,
   },
-  sectionSubDark: {
-    fontSize: 12,
-    color: '#64748b',
-    marginTop: 2,
-  },
-  orderCountPill: {
-    backgroundColor: '#eef2ff',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  orderCountPillText: {
-    fontSize: 12,
+  brandBadge: {
+    fontSize: 9,
     fontWeight: '800',
-    color: '#4f46e5',
+    color: colors.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
   },
-  centerLoading: {
-    paddingVertical: 30,
+  topRight: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: 8,
   },
-  centerLoadingText: {
-    fontSize: 12,
-    color: '#64748b',
-    fontWeight: '600',
-  },
-  emptyOrdersCard: {
-    backgroundColor: '#f8fafc',
-    borderRadius: 18,
-    padding: 28,
+  addShortcutBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    borderColor: '#cbd5e1',
-  },
-  emptyOrdersTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#334155',
-    marginTop: 10,
-  },
-  emptyOrdersSub: {
-    fontSize: 12,
-    color: '#64748b',
-    textAlign: 'center',
-    lineHeight: 18,
-    marginTop: 4,
-  },
-  ordersList: {
-    gap: 16,
-  },
-  orderCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
     shadowRadius: 6,
-    elevation: 2,
+    elevation: 3,
   },
-  orderTopBar: {
+  walletShortcutBtn: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingBottom: 12,
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.primaryBorder,
+  },
+  walletShortcutText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: colors.primary,
+  },
+  tabsBar: {
+    backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
+    paddingVertical: 8,
+  },
+  tabsScrollContent: {
+    paddingHorizontal: 14,
     gap: 8,
   },
-  orderRefWrap: {
-    flex: 1,
-  },
-  orderRefText: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#0f172a',
-    fontFamily: 'monospace',
-  },
-  orderDateText: {
-    fontSize: 11,
-    color: '#94a3b8',
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-  statusBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  orderItemsWrap: {
-    paddingVertical: 12,
-    gap: 10,
-  },
-  orderItemRow: {
+  tabPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-  },
-  itemThumb: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: '#f1f5f9',
-  },
-  itemTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  itemMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 3,
-  },
-  itemQty: {
-    fontSize: 11,
-    color: '#64748b',
-    fontWeight: '600',
-  },
-  itemSizeBadge: {
-    backgroundColor: '#f1f5f9',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  itemSizeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#475569',
-  },
-  itemPrice: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#ea580c',
-  },
-  destinationCard: {
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
     backgroundColor: '#f8fafc',
-    borderRadius: 14,
-    padding: 12,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    marginTop: 4,
-    gap: 4,
+    position: 'relative',
   },
-  destHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 2,
+  tabPillActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
-  destHeaderTitle: {
-    fontSize: 10,
+  tabPillText: {
+    fontSize: 11,
     fontWeight: '800',
-    color: '#ea580c',
-    letterSpacing: 0.5,
-  },
-  destCustomerName: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  destAddress: {
-    fontSize: 12,
-    color: '#475569',
-    lineHeight: 16,
-  },
-  zonePillsRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginTop: 4,
-  },
-  zonePill: {
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
-  },
-  zonePillText: {
-    fontSize: 10,
-    fontWeight: '700',
     color: '#475569',
   },
-  privacyShieldBox: {
-    backgroundColor: '#ecfdf5',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#a7f3d0',
-    padding: 10,
-    marginTop: 8,
-    gap: 4,
-  },
-  privacyShieldTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  privacyShieldTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#065f46',
-    textTransform: 'uppercase',
-  },
-  privacyShieldDesc: {
-    fontSize: 11,
-    color: '#047857',
-    lineHeight: 15,
-  },
-  shipmentTrackingBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#eef2ff',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginTop: 10,
-  },
-  shipmentTrackingLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#4338ca',
-  },
-  shipmentTrackingCode: {
-    fontSize: 11,
+  tabPillTextActive: {
+    color: '#ffffff',
     fontWeight: '900',
-    color: '#4338ca',
-    fontFamily: 'monospace',
   },
-  escrowNoticeCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#fffbeb',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#fde68a',
-    padding: 10,
-    marginTop: 10,
+  tabDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#ef4444',
   },
-  escrowNoticeText: {
-    flex: 1,
-    fontSize: 11,
-    color: '#92400e',
-    lineHeight: 15,
-    fontWeight: '500',
-  },
-  completedNoticeCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#f0fdf4',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#bbf7d0',
-    padding: 10,
-    marginTop: 10,
-  },
-  completedNoticeText: {
-    flex: 1,
-    fontSize: 11,
-    color: '#15803d',
-    lineHeight: 15,
-    fontWeight: '600',
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
   },
 });
