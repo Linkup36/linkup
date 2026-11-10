@@ -82,12 +82,10 @@ export function LoginScreen() {
         // Fetch user roles and profile to determine role-based destination
         const [rolesRes, profileRes] = await Promise.all([
           supabase.from('user_roles').select('role').eq('user_id', data.user.id),
-          supabase.from('profiles').select('role, onboarding_completed').eq('id', data.user.id).maybeSingle(),
+          supabase.from('profiles').select('onboarding_completed').eq('id', data.user.id).maybeSingle(),
         ]);
 
-        const userRoles: string[] = rolesRes.data?.map((r: any) => r.role) || [];
-        const profileRole = profileRes.data?.role;
-        const allRoles = [...userRoles, ...(profileRole ? [profileRole] : [])];
+        const allRoles: string[] = rolesRes.data?.map((r: any) => r.role) || [];
 
         // Check if onboarding is incomplete
         if (profileRes.data && profileRes.data.onboarding_completed === false) {
