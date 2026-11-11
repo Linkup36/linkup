@@ -33,14 +33,14 @@ export function OrderShipmentIntel({ shipment }: OrderShipmentIntelProps) {
       if (!shipment?.rider_id) return null;
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, display_name, full_name, avatar_url, phone')
+        .select('id, display_name, avatar_url, phone')
         .eq('id', shipment.rider_id)
         .maybeSingle();
 
       if (error || !data) {
         const { data: fallbackData } = await supabase
           .from('profiles')
-          .select('id, display_name, full_name, avatar_url, phone')
+          .select('id, display_name, avatar_url, phone')
           .eq('user_id', shipment.rider_id)
           .maybeSingle();
         return fallbackData;
@@ -150,7 +150,7 @@ export function OrderShipmentIntel({ shipment }: OrderShipmentIntelProps) {
   };
 
   const riderName =
-    riderProfile?.display_name || riderProfile?.full_name || 'Assigned Courier';
+    riderProfile?.display_name || 'Assigned Courier';
 
   return (
     <View style={styles.container}>

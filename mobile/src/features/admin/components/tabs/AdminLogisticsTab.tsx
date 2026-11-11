@@ -104,6 +104,87 @@ export function AdminLogisticsTab() {
     }
   };
 
+  const handleDeleteZone = (zone: any) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Alert.alert(
+      'Delete Delivery Zone',
+      `Are you sure you want to permanently delete "${zone.name}"? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('delivery_zones')
+                .delete()
+                .eq('id', zone.id);
+              if (error) throw error;
+              setZones((prev) => prev.filter((z) => z.id !== zone.id));
+              toast.success('Zone Deleted');
+            } catch (err: any) {
+              toast.error('Delete Failed', { description: err.message });
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleToggleCityActive = async (city: any) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const nextState = !city.is_active;
+    try {
+      const { error } = await supabase
+        .from('cities')
+        .update({ is_active: nextState })
+        .eq('id', city.id);
+
+      if (error) throw error;
+      setCities((prev) =>
+        prev.map((c) => (c.id === city.id ? { ...c, is_active: nextState } : c))
+      );
+      toast.success(nextState ? 'City Activated' : 'City Deactivated (Hidden from Marketplace)');
+    } catch (err: any) {
+      toast.error('Update Failed', { description: err.message });
+    }
+  };
+
+  const handleDeleteCity = (city: any) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Alert.alert(
+      'Delete City',
+      `Are you sure you want to permanently delete "${city.name}"?\n\nTip: If delivery zones, users, or products are linked to this city, deactivating it is recommended instead.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('cities')
+                .delete()
+                .eq('id', city.id);
+
+              if (error) throw error;
+              setCities((prev) => prev.filter((c) => c.id !== city.id));
+              toast.success('City Deleted');
+              fetchLogisticsData();
+            } catch (err: any) {
+              const msg =
+                err?.code === '23503' || err?.message?.includes('foreign key')
+                  ? `Cannot delete "${city.name}" because delivery zones or products are linked to it. Deactivate the city instead.`
+                  : err.message || 'Failed to delete city.';
+              toast.error('Delete Failed', { description: msg });
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleSaveEditFee = async () => {
     if (!editingZone) return;
     const num = parseFloat(editFeeVal);
@@ -289,6 +370,15 @@ export function AdminLogisticsTab() {
                   <Edit2 size={15} color="#475569" />
                 </TouchableOpacity>
 
+                <TouchableOpacity
+                  style={styles.deleteBtn}
+                  onPress={() => handleDeleteZone(zone)}
+                  activeOpacity={0.7}
+                  accessibilityLabel={`Delete ${zone.name}`}
+                >
+                  <Trash2 size={15} color="#EF4444" />
+                </TouchableOpacity>
+
                 <Switch
                   value={zone.is_active}
                   onValueChange={() => handleToggleZoneActive(zone)}
@@ -323,11 +413,40 @@ export function AdminLogisticsTab() {
               </View>
 
               <View style={styles.cardRight}>
-                <View style={styles.cityPill}>
-                  <Text style={styles.cityPillText}>
+                <View
+                  style={[
+                    styles.cityPill,
+                    {
+                      backgroundColor: city.is_active ? '#ECFDF5' : '#F1F5F9',
+                      borderColor: city.is_active ? '#A7F3D0' : '#CBD5E1',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.cityPillText,
+                      { color: city.is_active ? '#059669' : '#64748B' },
+                    ]}
+                  >
                     {city.is_active ? 'ENABLED' : 'PAUSED'}
                   </Text>
                 </View>
+
+                <TouchableOpacity
+                  style={styles.deleteBtn}
+                  onPress={() => handleDeleteCity(city)}
+                  activeOpacity={0.7}
+                  accessibilityLabel={`Delete ${city.name}`}
+                >
+                  <Trash2 size={15} color="#EF4444" />
+                </TouchableOpacity>
+
+                <Switch
+                  value={city.is_active}
+                  onValueChange={() => handleToggleCityActive(city)}
+                  trackColor={{ false: '#E2E8F0', true: colors.primaryBorder }}
+                  thumbColor={city.is_active ? colors.primary : '#FFFFFF'}
+                />
               </View>
             </View>
           ))}
@@ -547,6 +666,14 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: 10,
     backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#FEF2F2',
     alignItems: 'center',
     justifyContent: 'center',
   },

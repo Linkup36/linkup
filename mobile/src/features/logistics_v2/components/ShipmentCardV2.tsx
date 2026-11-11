@@ -17,6 +17,8 @@ import {
   Clock,
   ArrowRight,
   CheckCircle2,
+  Route,
+  AlertTriangle,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { colors } from '../../../theme/colors';
@@ -75,6 +77,45 @@ export function ShipmentCardV2({
   const pickupAddress = getPickupAddress(shipment);
   const deliveryAddress = getDeliveryAddress(shipment);
   const orderId = shipment.order_id || shipment.id;
+
+  // Package specifications parsing
+  let packageDetails: any = null;
+  if (shipment.package_details) {
+    if (typeof shipment.package_details === 'string') {
+      try {
+        packageDetails = JSON.parse(shipment.package_details);
+      } catch {
+        packageDetails = { contents: shipment.package_details };
+      }
+    } else {
+      packageDetails = shipment.package_details;
+    }
+  }
+
+  // Cross-zone fee & indicator
+  const crossZoneFee = Number(
+    shipment.cross_zone_fee ||
+    shipment.cross_zone_fee_amount ||
+    shipment.order?.cross_zone_fee ||
+    0
+  );
+  const isCrossZone = Boolean(
+    crossZoneFee > 0 ||
+    shipment.is_cross_zone ||
+    shipment.order?.is_cross_zone
+  );
+
+  // Distance & route directions
+  const rawDistance = shipment.distance_km || shipment.distance || shipment.estimated_distance;
+  const distanceKm = rawDistance ? Number(rawDistance).toFixed(1) : null;
+  const pickupDirections = shipment.pickup_directions || shipment.pickup_notes || '';
+  const dropoffDirections = shipment.dropoff_directions || shipment.dropoff_notes || shipment.delivery_instructions || '';
+
+  // Order items summary for marketplace orders
+  const orderItems = shipment.order?.order_items || shipment.order_items || [];
+  const orderItemsSummary = Array.isArray(orderItems) && orderItems.length > 0
+    ? orderItems.map((item: any) => `${item.quantity || 1}x ${item.product?.title || item.title || 'Item'}`).join(', ')
+    : null;
 
   const getStatusBadge = () => {
     switch (stage) {
@@ -223,10 +264,23 @@ export function ShipmentCardV2({
       {/* Guaranteed Payout Banner */}
       <View style={styles.payoutStrip}>
         <View style={styles.payoutStripLeft}>
-          <Text style={styles.payoutStripLabel}>YOUR GUARANTEED CUT</Text>
+          <View style={styles.payoutLabelRow}>
+            <Text style={styles.payoutStripLabel}>YOUR GUARANTEED CUT</Text>
+            {isCrossZone && (
+              <View style={styles.crossZoneTag}>
+                <Route size={9} color="#c2410c" />
+                <Text style={styles.crossZoneTagText}>CROSS-ZONE</Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.payoutStripAmount}>
             ₦{riderEarnings.toLocaleString('en-NG')}
           </Text>
+          {crossZoneFee > 0 && (
+            <Text style={styles.crossZoneSubtext}>
+              Includes +₦{crossZoneFee.toLocaleString('en-NG')} cross-zone fee
+            </Text>
+          )}
         </View>
         <View style={styles.escrowChip}>
           <ShieldCheck size={12} color="#059669" strokeWidth={2.5} />
@@ -234,8 +288,67 @@ export function ShipmentCardV2({
         </View>
       </View>
 
+      {/* Package Specifications (Send Packages) */}
+      {isSendOrder && packageDetails && (
+        <View style={styles.packageCard}>
+          <View style={styles.packageCardHeader}>
+            <View style={styles.pkgRow}>
+              <Package size={13} color={colors.primary} strokeWidth={2.5} />
+              <Text style={styles.packageCardTitle}>PACKAGE DETAILS</Text>
+            </View>
+            {packageDetails.weight_kg ? (
+              <View style={styles.weightBadge}>
+                <Text style={styles.weightBadgeText}>
+                  {packageDetails.weight_kg <= 2 ? 'Small (<2kg)' : `${packageDetails.weight_kg}kg`}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+          <View style={styles.packageDetailRow}>
+            <Text style={styles.detailLabel}>Contents: </Text>
+            <Text style={styles.detailValue} numberOfLines={1}>
+              {packageDetails.contents || 'General Parcel'}
+            </Text>
+            {packageDetails.is_fragile ? (
+              <View style={styles.fragileBadge}>
+                <Text style={styles.fragileBadgeText}>⚠️ Fragile</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      )}
+
+      {/* Order Items Summary (Marketplace Orders) */}
+      {!isSendOrder && orderItemsSummary && (
+        <View style={styles.marketplaceOrderCard}>
+          <View style={styles.pkgRow}>
+            <Package size={13} color={colors.primary} strokeWidth={2.5} />
+            <Text style={styles.packageCardTitle}>ORDER ITEMS ({orderItems.length})</Text>
+          </View>
+          <Text style={styles.orderItemsSummary} numberOfLines={2}>
+            {orderItemsSummary}
+          </Text>
+        </View>
+      )}
+
       {/* Route Nodes */}
       <View style={styles.nodesContainer}>
+        {/* Distance & Trip Metrics Header */}
+        <View style={styles.routeHeaderRow}>
+          <View style={styles.metricItem}>
+            <Navigation size={12} color={colors.primary} strokeWidth={2.5} />
+            <Text style={styles.metricText}>
+              {distanceKm ? `${distanceKm} km` : 'Local delivery'}
+            </Text>
+          </View>
+          {isCrossZone && (
+            <View style={styles.crossZonePill}>
+              <Route size={11} color="#ea580c" strokeWidth={2.5} />
+              <Text style={styles.crossZonePillText}>Cross-Zone Trip</Text>
+            </View>
+          )}
+        </View>
+
         {/* Pickup Row */}
         <View style={styles.nodeItem}>
           <View style={[styles.dot, { backgroundColor: colors.primary }]} />
@@ -243,9 +356,14 @@ export function ShipmentCardV2({
             <Text style={styles.nodeRole}>
               PICKUP: <Text style={styles.nodeName}>{sellerInfo.name}</Text>
             </Text>
-            <Text style={styles.nodeAddress} numberOfLines={1}>
+            <Text style={styles.nodeAddress} numberOfLines={2}>
               {pickupAddress}
             </Text>
+            {pickupDirections ? (
+              <Text style={styles.nodeDirections} numberOfLines={1}>
+                Note: "{pickupDirections}"
+              </Text>
+            ) : null}
           </View>
           {sellerInfo.phone ? (
             <TouchableOpacity
@@ -268,9 +386,14 @@ export function ShipmentCardV2({
             <Text style={[styles.nodeRole, { color: '#16a34a' }]}>
               DROP-OFF: <Text style={styles.nodeName}>{buyerContact.name}</Text>
             </Text>
-            <Text style={styles.nodeAddress} numberOfLines={1}>
+            <Text style={styles.nodeAddress} numberOfLines={2}>
               {deliveryAddress}
             </Text>
+            {dropoffDirections ? (
+              <Text style={styles.nodeDirections} numberOfLines={1}>
+                Note: "{dropoffDirections}"
+              </Text>
+            ) : null}
           </View>
           {buyerContact.phone ? (
             <TouchableOpacity
@@ -463,17 +586,45 @@ const styles = StyleSheet.create({
   payoutStripLeft: {
     gap: 1,
   },
+  payoutLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   payoutStripLabel: {
     fontSize: 8.5,
     fontWeight: '900',
     color: '#166534',
     letterSpacing: 0.4,
   },
+  crossZoneTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: '#ffedd5',
+    borderWidth: 1,
+    borderColor: '#fed7aa',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  crossZoneTagText: {
+    fontSize: 7.5,
+    fontWeight: '900',
+    color: '#c2410c',
+    letterSpacing: 0.2,
+  },
   payoutStripAmount: {
     fontSize: 17,
     fontWeight: '900',
     color: '#14532d',
     letterSpacing: -0.3,
+  },
+  crossZoneSubtext: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#15803d',
+    marginTop: 2,
   },
   escrowChip: {
     flexDirection: 'row',
@@ -492,11 +643,125 @@ const styles = StyleSheet.create({
     color: '#059669',
     letterSpacing: 0.2,
   },
+  packageCard: {
+    backgroundColor: '#fff7ed',
+    borderWidth: 1,
+    borderColor: '#fed7aa',
+    borderRadius: 14,
+    padding: 10,
+    gap: 6,
+  },
+  packageCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  pkgRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  packageCardTitle: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: colors.primary,
+    letterSpacing: 0.5,
+  },
+  weightBadge: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#fed7aa',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  weightBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#ea580c',
+  },
+  packageDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  detailLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  detailValue: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1e293b',
+    flexShrink: 1,
+  },
+  fragileBadge: {
+    backgroundColor: '#fee2e2',
+    borderWidth: 1,
+    borderColor: '#fca5a5',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  fragileBadgeText: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    color: '#b91c1c',
+  },
+  marketplaceOrderCard: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 14,
+    padding: 10,
+    gap: 4,
+  },
+  orderItemsSummary: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#334155',
+    lineHeight: 15,
+  },
   nodesContainer: {
     backgroundColor: '#f8fafc',
     borderRadius: 16,
     padding: 12,
     gap: 4,
+  },
+  routeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    marginBottom: 4,
+  },
+  metricItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  metricText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#475569',
+  },
+  crossZonePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#ffedd5',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  crossZonePillText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#ea580c',
   },
   nodeItem: {
     flexDirection: 'row',
@@ -526,6 +791,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#334155',
     marginTop: 1,
+  },
+  nodeDirections: {
+    fontSize: 10,
+    fontStyle: 'italic',
+    color: '#64748b',
+    marginTop: 2,
   },
   phoneIconBtn: {
     width: 24,

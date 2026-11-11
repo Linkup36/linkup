@@ -2,6 +2,10 @@ import React, { createContext, useContext, useEffect, useState, ReactNode, useRe
 import { Session, User } from '@supabase/supabase-js';
 import { supabase, getFreshAccessToken } from '../services/supabase';
 import { LocalStorage } from '../storage/localStorage';
+import {
+  setupGlobalNotificationsSubscription,
+  registerForPushNotificationsAsync,
+} from '../services/notifications';
 
 export interface UserProfile {
   id: string;
@@ -165,6 +169,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  // 3. Global real-time notifications listener & native push registration
+  useEffect(() => {
+    if (!user?.id) return;
+    registerForPushNotificationsAsync(user.id).catch(() => {});
+    const unsubscribe = setupGlobalNotificationsSubscription(user.id);
+    return () => {
+      unsubscribe();
+    };
+  }, [user?.id]);
 
   const signOut = async () => {
     setLoading(true);

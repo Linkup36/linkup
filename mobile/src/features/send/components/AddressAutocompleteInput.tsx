@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
-  ScrollView,
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
@@ -12,22 +11,13 @@ import {
   MapPin,
   Navigation,
   CheckCircle2,
-  Tag,
-  Building2,
-  Sparkles,
   Compass,
 } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
-import { useSavedAddresses } from '../hooks/useSavedAddresses';
-import {
-  searchAddresses,
-  resolveSuggestionCoordinates,
-  getPopularQuickPicks,
-  AddressSuggestion,
-} from '../services/addressSearchService';
 import { LocationPickerModal } from './LocationPickerModal';
 import { colors } from '../../../theme/colors';
+import { inferNigerianCityFromCoords } from '../utils/addressFormatter';
 
 interface AddressAutocompleteInputProps {
   label: string;
@@ -53,20 +43,14 @@ export function AddressAutocompleteInput({
   error,
   isRequired = true,
   mode = 'dropoff',
-  showQuickPills = true,
   onChangeAddress,
   onSelectLocation,
   onFocus,
 }: AddressAutocompleteInputProps) {
   const [query, setQuery] = useState(value || '');
-  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [isDetectingGps, setIsDetectingGps] = useState(false);
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
-
-  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
-  const { addresses: savedAddresses } = useSavedAddresses();
 
   const isPickup = mode === 'pickup';
   const hasCoords = typeof latitude === 'number' && typeof longitude === 'number';
@@ -75,51 +59,9 @@ export function AddressAutocompleteInput({
     setQuery(value || '');
   }, [value]);
 
-  const executeSearch = async (text: string) => {
-    setIsLoading(true);
-    try {
-      const results = await searchAddresses(text, savedAddresses);
-      setSuggestions(results);
-    } catch {
-      setSuggestions([]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleTextChange = (text: string) => {
     setQuery(text);
     onChangeAddress(text);
-
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-
-    if (!text.trim()) {
-      setSuggestions(getPopularQuickPicks(savedAddresses));
-      return;
-    }
-
-    debounceTimer.current = setTimeout(() => {
-      executeSearch(text);
-    }, 200);
-  };
-
-  const handleSelectSuggestion = async (item: AddressSuggestion) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    setIsLoading(true);
-    try {
-      const resolved = await resolveSuggestionCoordinates(item);
-      if (resolved) {
-        setQuery(resolved.address);
-        onChangeAddress(resolved.address);
-        onSelectLocation(resolved);
-      } else {
-        setQuery(item.displayName || item.primaryTitle);
-        onChangeAddress(item.displayName || item.primaryTitle);
-      }
-    } catch {} finally {
-      setIsLoading(false);
-      setIsFocused(false);
-    }
   };
 
   const handleGpsDetect = async () => {
@@ -133,23 +75,29 @@ export function AddressAutocompleteInput({
       const { latitude: lat, longitude: lng } = loc.coords;
 
       const res = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-      let formatted = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      let formatted = '';
       if (res && res.length > 0) {
         const item = res[0];
         const parts = [
           item.streetNumber,
-          item.street,
+          item.street || item.name,
           item.district || item.subregion,
-          item.city,
+          item.city || item.region,
         ].filter(Boolean);
         if (parts.length > 0) formatted = parts.join(', ');
+      }
+      if (!formatted) {
+        const city = inferNigerianCityFromCoords(lat, lng);
+        formatted = `${city} (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
       }
 
       setQuery(formatted);
       onChangeAddress(formatted);
       onSelectLocation({ address: formatted, latitude: lat, longitude: lng });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    } catch {} finally {
+    } catch (err) {
+      console.warn('GPS detection failed:', err);
+    } finally {
       setIsDetectingGps(false);
       setIsFocused(false);
     }
@@ -184,39 +132,33 @@ export function AddressAutocompleteInput({
           onChangeText={handleTextChange}
           onFocus={() => {
             setIsFocused(true);
-            if (!query.trim()) {
-              setSuggestions(getPopularQuickPicks(savedAddresses));
-            }
             onFocus?.();
           }}
           onBlur={() => {
-            // Short delay so tap on suggestion triggers first
-            setTimeout(() => setIsFocused(false), 250);
+            setIsFocused(false);
           }}
         />
 
-        {isLoading && <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 8 }} />}
+        {isDetectingGps && <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 8 }} />}
       </View>
 
-      {/* Action shortcuts under input: Use Current GPS & Pin on Map */}
+      {/* Action shortcuts under input: Detect Address & Pin on Map */}
       <View style={styles.shortcutsRow}>
-        {isPickup && (
-          <TouchableOpacity
-            style={styles.shortcutBtn}
-            onPress={handleGpsDetect}
-            disabled={isDetectingGps}
-            activeOpacity={0.7}
-          >
-            {isDetectingGps ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : (
-              <Navigation size={13} color={colors.primary} />
-            )}
-            <Text style={styles.shortcutText}>
-              {isDetectingGps ? 'Detecting GPS...' : 'Use Current Device Location'}
-            </Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={styles.shortcutBtn}
+          onPress={handleGpsDetect}
+          disabled={isDetectingGps}
+          activeOpacity={0.7}
+        >
+          {isDetectingGps ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Navigation size={13} color={colors.primary} />
+          )}
+          <Text style={styles.shortcutText}>
+            {isDetectingGps ? 'Detecting Address...' : 'Detect Address'}
+          </Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.shortcutBtn}
@@ -227,72 +169,6 @@ export function AddressAutocompleteInput({
           <Text style={[styles.shortcutText, { color: '#2563eb' }]}>Pin on Live Map</Text>
         </TouchableOpacity>
       </View>
-
-      {/* Quick Pick Pills (if not focused or focused with empty query) */}
-      {showQuickPills && (!isFocused || query.length === 0) && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.pillsScroll}
-        >
-          {getPopularQuickPicks(savedAddresses).slice(0, 6).map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.quickPill}
-              onPress={() => handleSelectSuggestion(item)}
-              activeOpacity={0.7}
-            >
-              {item.isSaved ? (
-                <Tag size={11} color={colors.primary} />
-              ) : (
-                <Building2 size={11} color="#64748b" />
-              )}
-              <Text style={styles.quickPillText} numberOfLines={1}>
-                {item.primaryTitle}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      )}
-
-      {/* Dropdown Suggestions Card */}
-      {isFocused && suggestions.length > 0 && (
-        <View style={styles.suggestionsCard}>
-          <ScrollView
-            keyboardShouldPersistTaps="always"
-            style={{ maxHeight: 220 }}
-            showsVerticalScrollIndicator={false}
-          >
-            {suggestions.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                style={styles.suggestionItem}
-                onPress={() => handleSelectSuggestion(item)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.suggestionIconWrap}>
-                  {item.isSaved ? (
-                    <Tag size={15} color={colors.primary} />
-                  ) : item.category === 'mall' || item.category === 'plaza' ? (
-                    <Building2 size={15} color="#2563eb" />
-                  ) : (
-                    <MapPin size={15} color="#64748b" />
-                  )}
-                </View>
-
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.suggestionPrimary} numberOfLines={1}>
-                    {item.primaryTitle}
-                  </Text>
-                  <Text style={styles.suggestionSub} numberOfLines={1}>
-                    {item.subtitle}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
 
       {/* Error Message */}
       {!!error && <Text style={styles.errorText}>{error}</Text>}
@@ -333,35 +209,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     backgroundColor: '#f0fdf4',
-    paddingHorizontal: 6,
+    paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#bbf7d0',
   },
   verifiedText: {
-    fontSize: 9,
-    fontWeight: '800',
+    fontSize: 10,
+    fontWeight: '600',
     color: '#16a34a',
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    borderWidth: 1.5,
-    borderColor: '#e2e8f0',
     borderRadius: 14,
-    minHeight: 46,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
     paddingHorizontal: 12,
+    minHeight: 48,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
   },
   inputWrapperFocused: {
     borderColor: colors.primary,
-    backgroundColor: '#ffffff',
     shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 3,
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   inputWrapperError: {
     borderColor: '#ef4444',
@@ -371,15 +250,16 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 14,
     color: '#0f172a',
-    paddingVertical: 8,
+    paddingVertical: 10,
   },
   shortcutsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     marginTop: 6,
+    paddingHorizontal: 2,
   },
   shortcutBtn: {
     flexDirection: 'row',
@@ -389,74 +269,12 @@ const styles = StyleSheet.create({
   },
   shortcutText: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
     color: colors.primary,
   },
-  pillsScroll: {
-    paddingTop: 8,
-    gap: 6,
-  },
-  quickPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    marginRight: 6,
-  },
-  quickPillText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: '#334155',
-  },
-  suggestionsCard: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 16,
-    marginTop: 6,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 6,
-    overflow: 'hidden',
-  },
-  suggestionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  suggestionIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  suggestionPrimary: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  suggestionSub: {
-    fontSize: 10,
-    color: '#64748b',
-    marginTop: 1,
-  },
   errorText: {
-    fontSize: 10,
+    fontSize: 11,
     color: '#ef4444',
     marginTop: 4,
-    fontWeight: '600',
   },
 });

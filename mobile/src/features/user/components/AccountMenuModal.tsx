@@ -31,6 +31,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../../navigation/types';
 import { useAuth } from '../../../context/AuthContext';
 import { LocalStorage } from '../../../storage/localStorage';
+import { playLinkUpNotificationSound } from '../../../services/soundService';
 import { supabase } from '../../../services/supabase';
 import {
   registerForPushNotificationsAsync,
@@ -248,6 +249,9 @@ export function AccountMenuModal({
     setSoundEnabled(nextVal);
     await LocalStorage.setItem('linkup_sound_enabled', nextVal);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (nextVal) {
+      playLinkUpNotificationSound().catch(() => {});
+    }
   };
 
   // 9. Logout Account

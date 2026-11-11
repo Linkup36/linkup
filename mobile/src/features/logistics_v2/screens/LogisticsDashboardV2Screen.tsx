@@ -313,27 +313,6 @@ export function LogisticsDashboardV2Screen() {
           fetchRiderOverview();
         }
       )
-      // Real-time listener on notifications table
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
-        async (payload: any) => {
-          const notif = payload.new;
-          if (notif) {
-            await scheduleNotificationAsync({
-              content: {
-                title: notif.title || 'LinkUp Dispatch Notification',
-                body: notif.message,
-                priority: AndroidNotificationPriority.MAX,
-              },
-              trigger: null,
-            });
-            toast.info(notif.title || 'Dispatch Alert', {
-              description: notif.message,
-            });
-          }
-        }
-      )
       .subscribe();
 
     return () => {

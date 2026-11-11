@@ -86,6 +86,7 @@ serve(async (req: Request) => {
       id?: string;
       email: string;
       name?: string;
+      push_token?: string | null;
     }
 
     const recipientsMap = new Map<string, Recipient>();
@@ -95,9 +96,19 @@ serve(async (req: Request) => {
       if (!targetTestEmail) {
         throw new Error("No test email address provided.");
       }
+
+      // Fetch profile to grab push_token for test recipient
+      const { data: testProfile } = await adminClient
+        .from("profiles")
+        .select("id, display_name, push_token")
+        .or(`email.eq.${targetTestEmail.toLowerCase()},id.eq.${user.id}`)
+        .maybeSingle();
+
       recipientsMap.set(targetTestEmail.toLowerCase(), {
+        id: testProfile?.id || user.id,
         email: targetTestEmail,
-        name: "Admin Tester"
+        name: testProfile?.display_name || "Admin Tester",
+        push_token: testProfile?.push_token || null,
       });
     } else {
       // Fetch all auth users
@@ -119,10 +130,10 @@ serve(async (req: Request) => {
         }
       }
 
-      // Fetch profiles to get display names
+      // Fetch profiles to get display names & mobile push tokens
       const { data: profiles } = await adminClient
         .from("profiles")
-        .select("id, display_name, email");
+        .select("id, display_name, email, push_token");
 
       const profileMap = new Map<string, any>();
       profiles?.forEach((p: any) => profileMap.set(p.id, p));
@@ -161,7 +172,8 @@ serve(async (req: Request) => {
           recipientsMap.set(email, {
             id: u.id,
             email: u.email,
-            name: name
+            name: name,
+            push_token: profile?.push_token || null,
           });
         }
       }
@@ -328,7 +340,66 @@ serve(async (req: Request) => {
       }
     }
 
-    // 6. Record Campaign in Database
+    // 6. Bulk Insert In-App Notifications for resolved recipients
+    let pushSuccessCount = 0;
+    try {
+      const notifRows = recipients
+        .filter((r) => r.id)
+        .map((r) => ({
+          user_id: r.id,
+          type: "announcement",
+          title: title || subject || "📢 Admin Announcement",
+          message: preheader || content.slice(0, 160),
+          data: { url: cta_url || "/" },
+          is_read: false,
+        }));
+
+      if (notifRows.length > 0) {
+        for (let i = 0; i < notifRows.length; i += 50) {
+          await adminClient.from("notifications").insert(notifRows.slice(i, i + 50));
+        }
+      }
+    } catch (notifErr: any) {
+      console.warn("Notifications table insert notice:", notifErr.message);
+    }
+
+    // 7. Dispatch Expo Push Notifications directly to all registered mobile tokens
+    try {
+      const expoMessages = recipients
+        .filter((r) => r.push_token && String(r.push_token).startsWith("ExponentPushToken["))
+        .map((r) => ({
+          to: r.push_token,
+          sound: "linkup_notification.mp3",
+          channelId: "linkup_notifications",
+          title: title || subject || "📢 Admin Announcement",
+          body: preheader || content.slice(0, 140),
+          priority: "high",
+          data: { url: cta_url || "/" },
+        }));
+
+      if (expoMessages.length > 0) {
+        for (let i = 0; i < expoMessages.length; i += 100) {
+          const chunk = expoMessages.slice(i, i + 100);
+          const pushRes = await fetch("https://exp.host/--/api/v2/push/send", {
+            method: "POST",
+            headers: {
+              "Accept": "application/json",
+              "Accept-encoding": "gzip, deflate",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(chunk),
+          });
+          if (pushRes.ok) {
+            pushSuccessCount += chunk.length;
+          }
+        }
+        console.log(`Dispatched ${pushSuccessCount} Expo push notifications.`);
+      }
+    } catch (pushErr: any) {
+      console.warn("Expo push delivery notice:", pushErr.message);
+    }
+
+    // 8. Record Campaign in Database
     let savedCampaign = null;
     if (target_audience !== "test") {
       const campaignRecord = {
@@ -371,12 +442,13 @@ serve(async (req: Request) => {
     }
 
     return new Response(JSON.stringify({
-      success: successCount > 0,
+      success: successCount > 0 || pushSuccessCount > 0,
       recipients_count: recipients.length,
       success_count: successCount,
+      push_success_count: pushSuccessCount,
       failure_count: failureCount,
       campaign: savedCampaign,
-      message: `Successfully dispatched to ${successCount} recipients.`
+      message: `Successfully dispatched to ${successCount} emails and ${pushSuccessCount} mobile push notifications.`
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,

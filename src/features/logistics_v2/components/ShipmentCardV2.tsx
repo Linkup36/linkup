@@ -19,7 +19,13 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
-import { calculateDistance, calculateRiderEarnings } from "../../logistics/utils/logistics-utils";
+import { 
+    calculateDistance, 
+    calculateRiderEarnings,
+    getBuyerContact,
+    getDeliveryAddress,
+    getSellerInfo,
+} from "../../logistics/utils/logistics-utils";
 
 interface ShipmentCardProps {
     shipment: any;
@@ -163,14 +169,37 @@ export function ShipmentCardV2({ shipment, onClick }: ShipmentCardProps) {
     const isSendOrder = shipment.is_send_order || String(shipment.id || '').startsWith("LSEND") || String(shipment.order_id || '').startsWith("LSEND");
     const riderEarnings = calculateRiderEarnings(shipment);
 
-    const senderName = shipment.sender_name || shipment.seller?.name || shipment.seller?.full_name || (isSendOrder ? "Sender" : "Merchant/Seller");
-    const senderPhone = shipment.sender_phone || shipment.seller?.phone || "";
+    const buyerContact = getBuyerContact(shipment);
+    const sellerInfo = getSellerInfo(shipment);
+
+    const senderName = sellerInfo?.name || shipment.sender_name || shipment.seller?.name || shipment.seller?.full_name || (isSendOrder ? "Sender" : "Merchant/Seller");
+    const senderPhone = sellerInfo?.phone || shipment.sender_phone || shipment.seller?.phone || "";
     const pickupAddress = shipment.pickup_address || "Pickup address pending";
     const pickupDirections = shipment.pickup_directions || "";
 
-    const recipientName = shipment.recipient_name || shipment.dropoff_recipient_name || shipment.buyer?.name || shipment.buyer?.full_name || (isSendOrder ? "Recipient" : "Buyer");
-    const recipientPhone = shipment.recipient_phone || shipment.dropoff_recipient_phone || shipment.buyer?.phone || "";
-    const deliveryAddress = shipment.delivery_address || shipment.dropoff_address || "Drop-off destination pending";
+    const recipientName =
+        (buyerContact?.name && buyerContact.name !== "Customer" ? buyerContact.name : null) ||
+        shipment.recipient_name ||
+        shipment.dropoff_recipient_name ||
+        shipment.buyer?.name ||
+        shipment.buyer?.full_name ||
+        shipment.order?.shipping_address?.name ||
+        shipment.order?.shipping_address?.receiver_name ||
+        (isSendOrder ? "Recipient" : "Buyer");
+
+    const recipientPhone =
+        (buyerContact?.phone && buyerContact.phone !== "No phone" ? buyerContact.phone : null) ||
+        shipment.recipient_phone ||
+        shipment.dropoff_recipient_phone ||
+        shipment.buyer?.phone ||
+        shipment.order?.shipping_address?.phone ||
+        "";
+
+    const resolvedDeliveryAddr = getDeliveryAddress(shipment);
+    const deliveryAddress =
+        resolvedDeliveryAddr && resolvedDeliveryAddr !== "Drop-off Node"
+            ? resolvedDeliveryAddr
+            : (shipment.delivery_address || shipment.dropoff_address || "Drop-off destination pending");
     const dropoffDirections = shipment.dropoff_directions || "";
 
     const packageDetails = shipment.package_details;

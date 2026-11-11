@@ -32,6 +32,7 @@ import {
   ShoppingBag,
   Store,
   Truck,
+  Megaphone,
   Eye,
   EyeOff,
   Sparkles,
@@ -65,6 +66,13 @@ const ROLES = [
     desc: 'Deliver parcels on bike/car and receive instant wallet payouts',
     icon: Truck,
     badge: 'Flexible',
+  },
+  {
+    id: 'promoter',
+    title: 'Affiliate Promoter',
+    desc: 'Earn recurring commissions by sharing deals & referring stores',
+    icon: Megaphone,
+    badge: 'Earn Cuts',
   },
 ];
 
@@ -322,13 +330,13 @@ export function RegisterScreen() {
       if (data.user) {
         await supabase.from('profiles').upsert({
           id: data.user.id,
-          full_name: fullName.trim(),
+          display_name: fullName.trim(),
           phone: phone.trim(),
           role: selectedRole,
           onboarding_completed: true,
         });
 
-        await supabase.from('user_roles').insert({
+        await supabase.from('user_roles').upsert({
           user_id: data.user.id,
           role: selectedRole,
         });
@@ -336,7 +344,7 @@ export function RegisterScreen() {
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       toast.success('Welcome to Linkup! 🎉', {
-        description: `Account created successfully`,
+        description: 'Account created successfully',
       });
 
       setTimeout(() => {

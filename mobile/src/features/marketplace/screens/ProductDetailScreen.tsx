@@ -192,7 +192,7 @@ export function ProductDetailScreen() {
           if (pData.seller_id) {
             const { data: sData } = await supabase
               .from('profiles')
-              .select('id, full_name, display_name, avatar_url, kyc_status, phone, bio')
+              .select('id, display_name, avatar_url, phone, bio')
               .eq('id', pData.seller_id)
               .maybeSingle();
 
@@ -208,7 +208,7 @@ export function ProductDetailScreen() {
             rating,
             review_text,
             created_at,
-            profiles:user_id(full_name, display_name, avatar_url)
+            profiles:user_id(display_name, avatar_url)
           `)
           .eq('product_id', id)
           .order('created_at', { ascending: false });
@@ -384,7 +384,7 @@ export function ProductDetailScreen() {
           rating,
           review_text,
           created_at,
-          profiles:user_id(full_name, display_name, avatar_url)
+          profiles:user_id(display_name, avatar_url)
         `)
         .eq('product_id', id)
         .order('created_at', { ascending: false });
@@ -873,9 +873,8 @@ export function ProductDetailScreen() {
                 <Text style={styles.reviewsTitle}>Customer Reviews</Text>
                 <Text style={styles.reviewsSubtitle}>
                   {reviews.length > 0
-                    ? `${averageRating.toFixed(1)} / 5.0 (${reviews.length} ${
-                        reviews.length === 1 ? 'review' : 'reviews'
-                      })`
+                    ? `${averageRating.toFixed(1)} / 5.0 (${reviews.length} ${reviews.length === 1 ? 'review' : 'reviews'
+                    })`
                     : 'No customer reviews yet'}
                 </Text>
               </View>
@@ -960,7 +959,7 @@ export function ProductDetailScreen() {
       >
         <View style={styles.checkoutPriceColumn}>
           <Text style={styles.checkoutFeeLabel}>
-            TOTAL DUE (+{Math.round(markupRate * 100)}% FEE)
+            TOTAL AMOUNT
           </Text>
           <Text style={styles.checkoutPriceValue}>
             ₦{finalPrice.toLocaleString('en-NG')}

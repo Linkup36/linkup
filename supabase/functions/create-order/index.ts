@@ -593,6 +593,7 @@ serve(async (req: Request) => {
       const notificationPromise = adminClient.from("notifications").insert({
         user_id: sId,
         type: "order",
+        title: "New Order Received! 🛒",
         message: `New order portion received! Order #${order.id.slice(0, 8)}`,
       });
 
@@ -608,10 +609,30 @@ serve(async (req: Request) => {
         }
       });
 
+      const buyerNotificationPromise = adminClient.from("notifications").insert({
+        user_id: user.id,
+        type: "order",
+        title: "Order Placed Successfully! 🛍️",
+        message: `Your order #${order.id.slice(0, 8)} has been placed and sent to the merchant.`,
+      });
+
+      const buyerPushPromise = adminClient.functions.invoke("send-push", {
+        body: {
+          target_user_id: user.id,
+          title: "Order Placed Successfully! 🛍️",
+          message: `Your order #${order.id.slice(0, 8)} has been sent to the merchant.`,
+          url: "/orders",
+        },
+        headers: {
+          Authorization: authHeader || "",
+        }
+      });
+
       const adminNotificationPromises = (adminRoles || []).map((admin: any) =>
         adminClient.from("notifications").insert({
           user_id: admin.user_id,
           type: "order",
+          title: "New Marketplace Order",
           message: `A new order #${order.id.slice(0, 8)} has been placed on the platform.`,
         })
       );
@@ -626,8 +647,8 @@ serve(async (req: Request) => {
         status: "pending",
       });
 
-      const [recipientRes, itemsRes, shipmentRes, notifRes, pushRes, settlementRes, ...otherResults] = await Promise.all([
-        recipientPromise, itemsPromise, shipmentPromise, notificationPromise, pushPromise, settlementPromise, ...adminNotificationPromises
+      const [recipientRes, itemsRes, shipmentRes, notifRes, pushRes, buyerNotifRes, buyerPushRes, settlementRes, ...otherResults] = await Promise.all([
+        recipientPromise, itemsPromise, shipmentPromise, notificationPromise, pushPromise, buyerNotificationPromise, buyerPushPromise, settlementPromise, ...adminNotificationPromises
       ]);
 
       if (recipientRes.error) console.error("RECIPIENT_INSERT_FAIL:", recipientRes.error);

@@ -24,6 +24,7 @@ import { useState, useEffect } from "react";
 import { Badge } from "@/shared/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { SoundToggle } from "@/shared/components/SoundToggle";
+import { playNotificationSound } from "@/shared/hooks/useSoundSettings";
 
 function NotificationsList({ user }: { user: any }) {
   const { data: notifications = [], isLoading } = useQuery({
@@ -155,11 +156,14 @@ export function Header() {
         queryClient.invalidateQueries({ queryKey: ["unread-notifications"] });
         queryClient.invalidateQueries({ queryKey: ["recent-notifications"] });
         queryClient.invalidateQueries({ queryKey: ["notifications"] });
+
+        // Trigger professional notification sound exclusively on notifications table INSERT
+        playNotificationSound();
         
         // Show in-app toast for real-time feedback
         if (payload.new && payload.new.message) {
             import("sonner").then(({ toast }) => {
-                toast("New Notification", {
+                toast(payload.new.title || "New Notification", {
                    description: payload.new.message,
                    action: {
                       label: "View",

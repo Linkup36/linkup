@@ -19,6 +19,7 @@ import { Button } from '../../../components/ui/Button';
 import { useAuth } from '../../../context/AuthContext';
 import { supabase } from '../../../services/supabase';
 import { toast } from '../../../components/ui/GooeyToast';
+import { colors } from '../../../theme/colors';
 import {
   Megaphone,
   Share2,
@@ -113,6 +114,10 @@ export function PromoterDashboardScreen() {
   const [fee, setFee] = useState(100);
   const [submittingWithdraw, setSubmittingWithdraw] = useState(false);
 
+  // Sign Out Modal State
+  const [signOutModalVisible, setSignOutModalVisible] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+
   // Fetch withdrawal fee from system settings
   useEffect(() => {
     (async () => {
@@ -198,33 +203,28 @@ export function PromoterDashboardScreen() {
     return unsubscribe;
   }, [navigation, user]);
 
-  // Handle Logout
+  // Handle Logout (Cross-Platform Modal Confirmation)
   const handleLogout = () => {
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to log out of your LinkUp promoter account?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Log Out',
-          style: 'destructive',
-          onPress: async () => {
-            isLoggingOutRef.current = true;
-            try {
-              await signOut();
-              toast.success('Logged out successfully');
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'MainTabs' }],
-              });
-            } catch (err: any) {
-              isLoggingOutRef.current = false;
-              toast.error('Logout failed', { description: err.message });
-            }
-          },
-        },
-      ]
-    );
+    setSignOutModalVisible(true);
+  };
+
+  const handleConfirmLogout = async () => {
+    isLoggingOutRef.current = true;
+    try {
+      setSigningOut(true);
+      setSignOutModalVisible(false);
+      await signOut();
+      toast.success('Signed out successfully');
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'MainTabs' }],
+      });
+    } catch (err: any) {
+      isLoggingOutRef.current = false;
+      toast.error('Logout failed', { description: err.message });
+    } finally {
+      setSigningOut(false);
+    }
   };
 
   const fetchPromoterData = async () => {
@@ -248,19 +248,48 @@ export function PromoterDashboardScreen() {
       }
       setPromoterCode(code);
 
-      // 2. Fetch referrals count
-      const { count: refCount } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true })
-        .eq('referred_by', user.id);
+      // 2. Fetch referrals count from referrals table
+      let refCount = 0;
+      try {
+        const { count, error: refError } = await supabase
+          .from('referrals')
+          .select('*', { count: 'exact', head: true })
+          .eq('promoter_id', user.id);
+        if (!refError && typeof count === 'number') {
+          refCount = count;
+        }
+      } catch (err) {
+        console.warn('[PromoterDashboard] Referrals query error:', err);
+      }
 
-      // 3. Fetch commissions from affiliate_commissions
-      const { data: commissions } = await supabase
-        .from('affiliate_commissions')
-        .select('amount, status')
-        .eq('promoter_id', user.id);
+      // 3. Fetch commissions from commissions table (with order_settlements fallback)
+      let totalEarned = 0;
+      try {
+        const { data: commissions, error: commError } = await supabase
+          .from('commissions')
+          .select('amount, status')
+          .eq('promoter_id', user.id);
 
-      const totalEarned = (commissions || []).reduce((acc: number, c: any) => acc + (c.amount || 0), 0);
+        if (!commError && commissions && commissions.length > 0) {
+          totalEarned = commissions.reduce((acc: number, c: any) => acc + (Number(c.amount) || 0), 0);
+        } else {
+          // Fallback to order_settlements if commissions table has no rows
+          const { data: settlements } = await (supabase
+            .from('order_settlements' as any)
+            .select(`
+              promoter_amount,
+              orders!inner(promoter_id)
+            `)
+            .eq('orders.promoter_id', user.id)
+            .gt('promoter_amount', 0) as any);
+
+          if (settlements) {
+            totalEarned = settlements.reduce((acc: number, s: any) => acc + (Number(s.promoter_amount) || 0), 0);
+          }
+        }
+      } catch (err) {
+        console.warn('[PromoterDashboard] Commissions query error:', err);
+      }
 
       // 4. Fetch or create Wallet for user
       let { data: wData, error: wError } = await supabase
@@ -299,12 +328,22 @@ export function PromoterDashboardScreen() {
       setMarkupRate(rate);
 
       // 7. Fetch total count of active in-stock products
-      const { count: totalProds } = await supabase
+      let totalCount = 0;
+      const { count: activeCount } = await supabase
         .from('products')
         .select('*', { count: 'exact', head: true })
         .eq('is_active', true)
         .gt('inventory', 0);
-      const totalCount = totalProds ?? 0;
+
+      if (typeof activeCount === 'number' && activeCount > 0) {
+        totalCount = activeCount;
+      } else {
+        const { count: fallbackCount } = await supabase
+          .from('products')
+          .select('*', { count: 'exact', head: true })
+          .gt('inventory', 0);
+        totalCount = fallbackCount ?? 0;
+      }
       setTotalProductsCount(totalCount);
 
       // 8. Fetch first page of marketplace products (with platform markup)
@@ -536,7 +575,7 @@ export function PromoterDashboardScreen() {
           onPress={() => setActiveTab('overview')}
           activeOpacity={0.8}
         >
-          <TrendingUp size={15} color={activeTab === 'overview' ? '#4f46e5' : '#64748b'} />
+          <TrendingUp size={15} color={activeTab === 'overview' ? colors.primary : '#64748b'} />
           <Text style={[styles.tabButtonText, activeTab === 'overview' && styles.tabButtonTextActive]}>
             Overview
           </Text>
@@ -547,9 +586,9 @@ export function PromoterDashboardScreen() {
           onPress={() => setActiveTab('products')}
           activeOpacity={0.8}
         >
-          <Package size={15} color={activeTab === 'products' ? '#4f46e5' : '#64748b'} />
+          <Package size={15} color={activeTab === 'products' ? colors.primary : '#64748b'} />
           <Text style={[styles.tabButtonText, activeTab === 'products' && styles.tabButtonTextActive]}>
-            Products ({products.length})
+            Products ({totalProductsCount > 0 ? totalProductsCount : products.length})
           </Text>
         </TouchableOpacity>
 
@@ -558,7 +597,7 @@ export function PromoterDashboardScreen() {
           onPress={() => setActiveTab('wallet')}
           activeOpacity={0.8}
         >
-          <Wallet size={15} color={activeTab === 'wallet' ? '#4f46e5' : '#64748b'} />
+          <Wallet size={15} color={activeTab === 'wallet' ? colors.primary : '#64748b'} />
           <Text style={[styles.tabButtonText, activeTab === 'wallet' && styles.tabButtonTextActive]}>
             Wallet & Payouts
           </Text>
@@ -567,14 +606,14 @@ export function PromoterDashboardScreen() {
 
       <ScrollView
         contentContainerStyle={styles.scroll}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4f46e5']} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
       >
         {activeTab === 'overview' ? (
           <>
             {/* Hero Card */}
             <View style={styles.heroCard}>
               <View style={styles.heroTag}>
-                <Megaphone size={14} color="#4f46e5" />
+                <Megaphone size={14} color={colors.primary} />
                 <Text style={styles.heroTagText}>Promoter Partner Program</Text>
               </View>
 
@@ -601,16 +640,16 @@ export function PromoterDashboardScreen() {
             <View style={styles.statsGrid}>
               {/* Available Wallet Balance */}
               <TouchableOpacity
-                style={[styles.statCard, { borderColor: '#c7d2fe', backgroundColor: '#eef2ff' }]}
+                style={[styles.statCard, { borderColor: colors.primaryBorder, backgroundColor: colors.primaryLight }]}
                 onPress={() => setActiveTab('wallet')}
                 activeOpacity={0.85}
               >
                 <View style={styles.statHeaderRow}>
-                  <Wallet size={18} color="#4f46e5" />
+                  <Wallet size={18} color={colors.primary} />
                   <Text style={styles.pillAction}>Withdraw</Text>
                 </View>
                 <Text style={styles.statLabel}>Available Balance</Text>
-                <Text style={[styles.statValue, { color: '#312e81' }]}>
+                <Text style={[styles.statValue, { color: '#7C2D12' }]}>
                   {formatPrice(wallet?.balance || 0)}
                 </Text>
               </TouchableOpacity>
@@ -637,7 +676,7 @@ export function PromoterDashboardScreen() {
 
               {/* Referred Members */}
               <View style={styles.statCard}>
-                <Users size={18} color="#6366f1" />
+                <Users size={18} color={colors.primary} />
                 <Text style={styles.statLabel}>Referred Members</Text>
                 <Text style={styles.statValue}>{stats.totalReferrals}</Text>
               </View>
@@ -646,7 +685,7 @@ export function PromoterDashboardScreen() {
             {/* Platform Percentage Notice Banner */}
             <View style={styles.noticeCard}>
               <View style={styles.noticeIconWrap}>
-                <Info size={18} color="#4f46e5" />
+                <Info size={18} color={colors.primary} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.noticeTitle}>Customer-Facing Pricing</Text>
@@ -661,7 +700,7 @@ export function PromoterDashboardScreen() {
               <Button
                 title="Browse Products to Promote"
                 onPress={() => setActiveTab('products')}
-                style={{ backgroundColor: '#4f46e5' }}
+                style={{ backgroundColor: colors.primary }}
               />
               <Button
                 title="Withdraw Earnings"
@@ -670,7 +709,7 @@ export function PromoterDashboardScreen() {
                   setActiveTab('wallet');
                   setIsWithdrawOpen(true);
                 }}
-                style={{ marginTop: 10, borderColor: '#4f46e5' }}
+                style={{ marginTop: 10, borderColor: colors.primary }}
               />
               <Button
                 title="Share Referral Code"
@@ -717,7 +756,7 @@ export function PromoterDashboardScreen() {
             {/* Products List */}
             {loading ? (
               <View style={styles.centerLoading}>
-                <ActivityIndicator size="large" color="#4f46e5" />
+                <ActivityIndicator size="large" color={colors.primary} />
                 <Text style={styles.loadingText}>Loading products...</Text>
               </View>
             ) : filteredProducts.length === 0 ? (
@@ -803,11 +842,11 @@ export function PromoterDashboardScreen() {
                     activeOpacity={0.8}
                   >
                     {loadingMoreProducts ? (
-                      <ActivityIndicator size="small" color="#4f46e5" />
+                      <ActivityIndicator size="small" color={colors.primary} />
                     ) : (
                       <>
                         <Text style={styles.loadMoreBtnText}>Load More Products</Text>
-                        <ChevronDown size={16} color="#4f46e5" />
+                        <ChevronDown size={16} color={colors.primary} />
                       </>
                     )}
                   </TouchableOpacity>
@@ -861,7 +900,7 @@ export function PromoterDashboardScreen() {
                   onPress={() => navigation.navigate('Wallet')}
                   activeOpacity={0.85}
                 >
-                  <CreditCard size={16} color="#4f46e5" />
+                  <CreditCard size={16} color={colors.primary} />
                   <Text style={styles.openWalletBtnText}>Full Wallet</Text>
                 </TouchableOpacity>
               </View>
@@ -1020,9 +1059,51 @@ export function PromoterDashboardScreen() {
                 onPress={handleRequestWithdrawal}
                 loading={submittingWithdraw}
                 disabled={submittingWithdraw}
-                style={{ marginTop: 22, backgroundColor: '#4f46e5' }}
+                style={{ marginTop: 22, backgroundColor: colors.primary }}
               />
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Sign Out Confirmation Modal */}
+      <Modal
+        visible={signOutModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSignOutModalVisible(false)}
+      >
+        <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center', padding: 20 }]}>
+          <View style={styles.signOutModalContainer}>
+            <View style={styles.signOutIconWrapper}>
+              <LogOut size={26} color="#ef4444" />
+            </View>
+
+            <Text style={styles.signOutModalTitle}>Sign Out</Text>
+            <Text style={styles.signOutModalSubtitle}>
+              Are you sure you want to sign out of your LinkUp promoter account?
+            </Text>
+
+            <View style={styles.signOutActionsRow}>
+              <TouchableOpacity
+                style={styles.signOutCancelBtn}
+                onPress={() => setSignOutModalVisible(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.signOutCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.signOutConfirmBtn, signingOut && { opacity: 0.6 }]}
+                onPress={handleConfirmLogout}
+                disabled={signingOut}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.signOutConfirmText}>
+                  {signingOut ? 'Signing Out...' : 'Sign Out'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1094,17 +1175,19 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
   tabButtonTextActive: {
-    color: '#4f46e5',
+    color: colors.primary,
   },
   scroll: {
     padding: 16,
     paddingBottom: 40,
   },
   heroCard: {
-    backgroundColor: '#1e1b4b',
+    backgroundColor: '#1c1917',
     borderRadius: 24,
     padding: 24,
     marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(235, 125, 48, 0.25)',
   },
   heroTag: {
     flexDirection: 'row',
@@ -1120,7 +1203,7 @@ const styles = StyleSheet.create({
   heroTagText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#4f46e5',
+    color: colors.primary,
     textTransform: 'uppercase',
   },
   heroTitle: {
@@ -1139,12 +1222,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 16,
     padding: 14,
     marginTop: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: 'rgba(235, 125, 48, 0.3)',
   },
   codeLabel: {
     fontSize: 11,
@@ -1163,7 +1246,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: '#4f46e5',
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1195,7 +1278,7 @@ const styles = StyleSheet.create({
   pillAction: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#4f46e5',
+    color: colors.primary,
     backgroundColor: '#ffffff',
     paddingHorizontal: 8,
     paddingVertical: 2,
@@ -1217,29 +1300,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
-    backgroundColor: '#f5f3ff',
+    backgroundColor: '#FFF7ED',
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#ddd6fe',
+    borderColor: '#FED7AA',
     marginVertical: 14,
   },
   noticeIconWrap: {
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: '#ede9fe',
+    backgroundColor: '#FFEDD5',
     alignItems: 'center',
     justifyContent: 'center',
   },
   noticeTitle: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#4338ca',
+    color: '#9A3412',
   },
   noticeSub: {
     fontSize: 12,
-    color: '#5b21b6',
+    color: '#C2410C',
     marginTop: 2,
     lineHeight: 17,
   },
@@ -1379,7 +1462,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#4f46e5',
+    backgroundColor: colors.primary,
     paddingVertical: 8,
     borderRadius: 10,
   },
@@ -1390,10 +1473,12 @@ const styles = StyleSheet.create({
   },
   /* Wallet & Payout Styles */
   walletHeroCard: {
-    backgroundColor: '#1e1b4b',
+    backgroundColor: '#1c1917',
     borderRadius: 24,
     padding: 22,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(235, 125, 48, 0.25)',
   },
   walletHeroTop: {
     flexDirection: 'row',
@@ -1416,7 +1501,7 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 16,
-    backgroundColor: '#4f46e5',
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1445,7 +1530,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#4f46e5',
+    backgroundColor: colors.primary,
     paddingVertical: 12,
     borderRadius: 14,
   },
@@ -1467,7 +1552,7 @@ const styles = StyleSheet.create({
   openWalletBtnText: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#4f46e5',
+    color: colors.primary,
   },
   payoutRuleCard: {
     flexDirection: 'row',
@@ -1594,7 +1679,7 @@ const styles = StyleSheet.create({
   },
   modalSubtitle: {
     fontSize: 13,
-    color: '#4f46e5',
+    color: colors.primary,
     fontWeight: '700',
     marginTop: 2,
   },
@@ -1656,18 +1741,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#eef2ff',
+    backgroundColor: '#FFF7ED',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#c7d2fe',
+    borderColor: '#FDBA74',
     minWidth: 200,
   },
   loadMoreBtnText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#4f46e5',
+    color: colors.primary,
   },
   allLoadedBadge: {
     flexDirection: 'row',
@@ -1684,5 +1769,77 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#16a34a',
+  },
+  /* Sign Out Modal */
+  signOutModalContainer: {
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  signOutIconWrapper: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#fee2e2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+    borderWidth: 3,
+    borderColor: '#fef2f2',
+  },
+  signOutModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0f172a',
+    marginBottom: 6,
+  },
+  signOutModalSubtitle: {
+    fontSize: 13,
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 20,
+    paddingHorizontal: 8,
+  },
+  signOutActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    width: '100%',
+  },
+  signOutCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  signOutCancelText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  signOutConfirmBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: '#ef4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  signOutConfirmText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#ffffff',
   },
 });

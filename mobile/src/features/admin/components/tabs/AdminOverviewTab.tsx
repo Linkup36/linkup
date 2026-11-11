@@ -57,7 +57,12 @@ export function AdminOverviewTab({
 }: AdminOverviewTabProps) {
   const [runningAction, setRunningAction] = useState<string | null>(null);
 
-  const formatNaira = (val: number) => '₦' + (val || 0).toLocaleString('en-NG');
+  const formatNaira = (val: number) =>
+    '₦' +
+    Number(val || 0).toLocaleString('en-NG', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
 
   const handleRunEscrowReleases = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

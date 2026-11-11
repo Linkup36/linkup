@@ -19,6 +19,7 @@ export type ToastType = 'success' | 'error' | 'warning' | 'info';
 export interface ToastOptions {
   description?: string;
   duration?: number;
+  silent?: boolean;
   action?: {
     label: string;
     onPress: () => void;

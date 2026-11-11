@@ -90,7 +90,7 @@ export function ProfileScreen() {
       const { error } = await supabase
         .from('profiles')
         .update({
-          full_name: fullName.trim(),
+          display_name: fullName.trim(),
           phone: phone.trim(),
         })
         .eq('id', user.id);

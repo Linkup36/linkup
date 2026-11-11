@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { inferNigerianCityFromCoords } from '../utils/addressFormatter';
 
 export interface DetectedLocation {
   address: string;
@@ -39,13 +40,14 @@ export function useLocationDetector() {
 
             if (!res.ok) throw new Error('Reverse geocoding failed');
             const data = await res.json();
-            const displayName = data.display_name || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+            const fallbackCity = inferNigerianCityFromCoords(latitude, longitude);
+            const displayName = data.display_name || `${fallbackCity} (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
             const city =
               data.address?.city ||
               data.address?.town ||
               data.address?.suburb ||
               data.address?.state ||
-              '';
+              fallbackCity;
 
             toast.success('Location detected successfully');
             resolve({
@@ -56,11 +58,13 @@ export function useLocationDetector() {
             });
           } catch (err: any) {
             console.error('Reverse geocode error:', err);
-            toast.error("Detected GPS coords, but couldn't resolve address text. Please verify address.");
+            const fallbackCity = inferNigerianCityFromCoords(position.coords.latitude, position.coords.longitude);
+            toast.success('Location detected successfully');
             resolve({
-              address: `${position.coords.latitude.toFixed(5)}, ${position.coords.longitude.toFixed(5)}`,
+              address: `${fallbackCity} (${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)})`,
               latitude: position.coords.latitude,
               longitude: position.coords.longitude,
+              city: fallbackCity,
             });
           } finally {
             setIsDetecting(false);
@@ -93,30 +97,6 @@ export interface GeocodeResult {
   city?: string;
   suburb?: string;
   state?: string;
-}
-
-/**
- * Infers approximate city name from Nigerian coordinates when network is offline
- */
-function inferNigerianCityFromCoords(lat: number, lng: number): string {
-  // Abuja: ~9.0765, 7.3986
-  if (lat >= 8.8 && lat <= 9.3 && lng >= 7.1 && lng <= 7.6) return 'Abuja';
-  // Lagos: ~6.5244, 3.3792
-  if (lat >= 6.3 && lat <= 6.7 && lng >= 3.1 && lng <= 3.6) return 'Lagos';
-  // Port Harcourt: ~4.8156, 7.0498
-  if (lat >= 4.6 && lat <= 5.1 && lng >= 6.8 && lng <= 7.3) return 'Port Harcourt';
-  // Ibadan: ~7.3775, 3.9470
-  if (lat >= 7.2 && lat <= 7.6 && lng >= 3.7 && lng <= 4.2) return 'Ibadan';
-  // Kano: ~12.0022, 8.5920
-  if (lat >= 11.8 && lat <= 12.2 && lng >= 8.4 && lng <= 8.8) return 'Kano';
-  // Enugu: ~6.4584, 7.5464
-  if (lat >= 6.3 && lat <= 6.7 && lng >= 7.3 && lng <= 7.8) return 'Enugu';
-  // Kaduna: ~10.5105, 7.4165
-  if (lat >= 10.3 && lat <= 10.7 && lng >= 7.2 && lng <= 7.6) return 'Kaduna';
-  // Benin City: ~6.3350, 5.6037
-  if (lat >= 6.1 && lat <= 6.6 && lng >= 5.4 && lng <= 5.8) return 'Benin City';
-
-  return 'Nigeria';
 }
 
 /**

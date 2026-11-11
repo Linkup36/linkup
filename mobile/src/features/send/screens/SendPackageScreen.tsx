@@ -275,7 +275,7 @@ export function SendPackageScreen() {
       return;
     }
     setErrors({});
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
     setStep(2);
   };
 
@@ -293,7 +293,7 @@ export function SendPackageScreen() {
     }
 
     setErrors({});
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
     setStep(3);
   };
 
@@ -311,13 +311,13 @@ export function SendPackageScreen() {
     }
 
     setErrors({});
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
     setStep(4);
   };
 
   // Step 4 Validation
   const handleStep4Next = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
     setStep(5);
   };
 
@@ -335,7 +335,7 @@ export function SendPackageScreen() {
           latitude: formData.pickupLat,
           longitude: formData.pickupLng,
         });
-      } catch {}
+      } catch { }
     }
 
     if (formData.saveDropoffAddress && formData.dropoffAddress.trim()) {
@@ -350,7 +350,7 @@ export function SendPackageScreen() {
           latitude: formData.dropoffLat,
           longitude: formData.dropoffLng,
         });
-      } catch {}
+      } catch { }
     }
   };
 
@@ -362,7 +362,7 @@ export function SendPackageScreen() {
     }
 
     setLoading(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { });
 
     try {
       const orderId = generateSendOrderId();
@@ -600,843 +600,845 @@ export function SendPackageScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
         >
-        {/* Flow Header with Back Button & Support */}
-        {step <= 5 && (
-          <View style={styles.flowHeader}>
-            <View style={styles.flowHeaderLeft}>
-              <TouchableOpacity
-                style={styles.backBtn}
-                onPress={() => {
-                  if (step > 1) {
-                    setStep((prev) => (prev - 1) as any);
-                  } else {
-                    navigation.navigate('MainTabs', { screen: 'HomeTab' });
-                  }
-                }}
-                activeOpacity={0.7}
-              >
-                <ArrowLeft size={22} color="#0f172a" strokeWidth={2.5} />
-              </TouchableOpacity>
-
-              <View style={styles.flowTitleWrap}>
-                <Text style={styles.flowTitle}>Send a Package</Text>
-                <Text style={styles.flowSubtitle}>Send boxes, items, parcels etc.</Text>
-              </View>
-            </View>
-
-            {/* Contact Support Button */}
-            <TouchableOpacity
-              style={styles.contactSupportBtn}
-              onPress={() => setSupportModalOpen(true)}
-              activeOpacity={0.8}
-            >
-              <Headphones size={16} color="#0f172a" strokeWidth={2.4} />
-              <Text style={styles.contactSupportText}>Contact Support</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* 5-Step Stepper Indicator */}
-        {step <= 5 && <SendProgress currentStep={step} />}
-
-        {/* ================= STEP 1: PACKAGE DETAILS ================= */}
-        {step === 1 && (
-          <View
-            style={styles.stepSection}
-            onLayout={(e) => {
-              stepSectionY.current = e.nativeEvent.layout.y;
-            }}
-          >
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionHeading}>Package Details</Text>
-              <Text style={styles.sectionSub}>Select the size and specify the contents of your parcel.</Text>
-            </View>
-
-            {/* Select Package Size Card */}
-            <View
-              style={styles.cardContainer}
-              onLayout={(e) => {
-                step1SizeCardY.current = e.nativeEvent.layout.y;
-              }}
-            >
-              <View style={styles.cardHeader}>
-                <Package size={16} color={colors.primary} strokeWidth={2.4} />
-                <Text style={styles.cardTitle}>SELECT PACKAGE SIZE</Text>
-              </View>
-
-              <View style={styles.packageSizesGrid}>
-                {PACKAGE_SIZES.map((s) => {
-                  const isSelected = selectedSize === s.label;
-
-                  return (
-                    <TouchableOpacity
-                      key={s.label}
-                      style={[
-                        styles.packageSizeCard,
-                        isSelected && styles.packageSizeCardSelected,
-                      ]}
-                      onPress={() => {
-                        setSelectedSize(s.label);
-                        updateFormData({ weightKg: s.weight });
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <View style={styles.packageSizeTop}>
-                        <Text style={[styles.packageSizeLabel, isSelected && { color: colors.primary }]}>
-                          {s.label}
-                        </Text>
-                        <View style={[styles.packageSizeSubBadge, isSelected && styles.packageSizeSubBadgeSelected]}>
-                          <Text style={[styles.packageSizeSubText, isSelected && { color: colors.primary }]}>
-                            {s.sub}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text style={styles.packageSizeDesc}>{s.desc}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              {/* Custom Weight (kg) */}
-              <View
-                style={styles.weightWrap}
-                onLayout={(e) => {
-                  fieldYOffsets.current['customWeight'] = e.nativeEvent.layout.y;
-                }}
-              >
-                <View style={styles.weightLabelRow}>
-                  <Text style={styles.inputLabel}>Custom Weight (kg)</Text>
-                  <Text style={styles.weightValueText}>{formData.weightKg} kg</Text>
-                </View>
-                <TextInput
-                  style={styles.textInput}
-                  keyboardType="numeric"
-                  value={formData.weightKg ? formData.weightKg.toString() : ''}
-                  onChangeText={(val) => {
-                    const parsed = parseFloat(val);
-                    if (!isNaN(parsed)) updateFormData({ weightKg: parsed });
-                  }}
-                  onFocus={() => handleFieldFocus('customWeight')}
-                  placeholder="e.g. 1.5"
-                  placeholderTextColor="#94a3b8"
-                />
-              </View>
-            </View>
-
-            {/* What are you sending? */}
-            <View
-              style={styles.cardContainer}
-              onLayout={(e) => {
-                step1CardY.current = e.nativeEvent.layout.y;
-              }}
-            >
-              <View
-                style={styles.cardPadding}
-                onLayout={(e) => {
-                  fieldYOffsets.current['packageContents'] = e.nativeEvent.layout.y;
-                }}
-              >
-                <Text style={styles.inputLabel}>
-                  What are you sending? <Text style={{ color: '#ef4444' }}>*</Text>
-                </Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="e.g. Books, Laptop in bag, Clothes, Documents"
-                  placeholderTextColor="#94a3b8"
-                  value={formData.packageContents}
-                  onChangeText={(val) => updateFormData({ packageContents: val })}
-                  onFocus={() => handleFieldFocus('packageContents')}
-                />
-                {errors.packageContents && (
-                  <Text style={styles.fieldError}>{errors.packageContents}</Text>
-                )}
-
-                {/* Fragile Item Toggle */}
+          {/* Flow Header with Back Button & Support */}
+          {step <= 5 && (
+            <View style={styles.flowHeader}>
+              <View style={styles.flowHeaderLeft}>
                 <TouchableOpacity
-                  style={styles.fragileRow}
+                  style={styles.backBtn}
                   onPress={() => {
-                    updateFormData({ isFragile: !formData.isFragile });
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    if (step > 1) {
+                      setStep((prev) => (prev - 1) as any);
+                    } else {
+                      navigation.navigate('MainTabs', { screen: 'HomeTab' });
+                    }
                   }}
                   activeOpacity={0.7}
                 >
-                  <View style={styles.fragileLeft}>
-                    <View style={styles.fragileIconCircle}>
-                      <Sparkles size={16} color="#d97706" />
-                    </View>
-                    <View>
-                      <Text style={styles.fragileTitle}>Fragile Item (+₦300)</Text>
-                      <Text style={styles.fragileSub}>Requires extra delicate handling</Text>
-                    </View>
-                  </View>
-                  <View style={[styles.checkbox, formData.isFragile && styles.checkboxActive]}>
-                    {formData.isFragile && <Check size={14} color="#ffffff" strokeWidth={3} />}
-                  </View>
+                  <ArrowLeft size={22} color="#0f172a" strokeWidth={2.5} />
                 </TouchableOpacity>
+
+                <View style={styles.flowTitleWrap}>
+                  <Text style={styles.flowTitle}>Send a Package</Text>
+                  <Text style={styles.flowSubtitle}>Send boxes, items, parcels etc.</Text>
+                </View>
               </View>
+
+              {/* Contact Support Button */}
+              <TouchableOpacity
+                style={styles.contactSupportBtn}
+                onPress={() => setSupportModalOpen(true)}
+                activeOpacity={0.8}
+              >
+                <Headphones size={16} color="#0f172a" strokeWidth={2.4} />
+                <Text style={styles.contactSupportText}>Contact Support</Text>
+              </TouchableOpacity>
             </View>
+          )}
 
-            {/* Insurance Banner */}
-            <View style={styles.trustBanner}>
-              <ShieldCheck size={18} color="#2563eb" />
-              <Text style={styles.trustBannerText}>
-                Every parcel is insured and safely tracked from pickup to delivery.
-              </Text>
-            </View>
+          {/* 5-Step Stepper Indicator */}
+          {step <= 5 && <SendProgress currentStep={step} />}
 
-            {/* Continue Button */}
-            <TouchableOpacity
-              style={styles.primaryActionBtn}
-              onPress={handleStep1Next}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.primaryActionBtnText}>Continue to Pickup Location</Text>
-              <ArrowRight size={18} color="#ffffff" strokeWidth={2.5} />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* ================= STEP 2: PICKUP LOCATION ================= */}
-        {step === 2 && (
-          <View
-            style={styles.stepSection}
-            onLayout={(e) => {
-              stepSectionY.current = e.nativeEvent.layout.y;
-            }}
-          >
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionHeading}>Pickup Location</Text>
-              <Text style={styles.sectionSub}>Where should the verified courier pick up this package?</Text>
-            </View>
-
-            {/* Saved Addresses Selector */}
-            {savedAddresses.length > 0 && (
-              <View style={styles.savedSection}>
-                <Text style={styles.savedHeading}>Pick from Saved Addresses:</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                  {savedAddresses.map((addr) => (
-                    <TouchableOpacity
-                      key={addr.id}
-                      style={styles.savedChip}
-                      onPress={() => handleSelectSavedPickup(addr)}
-                    >
-                      <Tag size={12} color={colors.primary} />
-                      <Text style={styles.savedChipText}>{addr.label || addr.address.split(',')[0]}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
+          {/* ================= STEP 1: PACKAGE DETAILS ================= */}
+          {step === 1 && (
             <View
-              style={styles.cardContainer}
+              style={styles.stepSection}
               onLayout={(e) => {
-                step2CardY.current = e.nativeEvent.layout.y;
+                stepSectionY.current = e.nativeEvent.layout.y;
               }}
             >
-              <View style={styles.cardPadding}>
-                <View
-                  onLayout={(e) => {
-                    fieldYOffsets.current['senderName'] = e.nativeEvent.layout.y;
-                  }}
-                >
-                  <Text style={styles.inputLabel}>
-                    Sender Full Name <Text style={{ color: '#ef4444' }}>*</Text>
-                  </Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="e.g. John Doe"
-                    placeholderTextColor="#94a3b8"
-                    value={formData.senderName}
-                    onChangeText={(val) => updateFormData({ senderName: val })}
-                    onFocus={() => handleFieldFocus('senderName')}
-                  />
-                  {errors.senderName && <Text style={styles.fieldError}>{errors.senderName}</Text>}
-                </View>
-
-                <View
-                  style={{ marginTop: 14 }}
-                  onLayout={(e) => {
-                    fieldYOffsets.current['senderPhone'] = e.nativeEvent.layout.y;
-                  }}
-                >
-                  <Text style={styles.inputLabel}>
-                    Sender Contact Phone <Text style={{ color: '#ef4444' }}>*</Text>
-                  </Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="e.g. 08012345678"
-                    placeholderTextColor="#94a3b8"
-                    keyboardType="phone-pad"
-                    value={formData.senderPhone}
-                    onChangeText={(val) => updateFormData({ senderPhone: val })}
-                    onFocus={() => handleFieldFocus('senderPhone')}
-                  />
-                  {errors.senderPhone && <Text style={styles.fieldError}>{errors.senderPhone}</Text>}
-                </View>
-
-                {/* Pickup Address Autocomplete */}
-                <View
-                  style={{ marginTop: 14 }}
-                  onLayout={(e) => {
-                    fieldYOffsets.current['pickupAddress'] = e.nativeEvent.layout.y;
-                  }}
-                >
-                  <AddressAutocompleteInput
-                    label="Pickup Address"
-                    placeholder="Enter pickup street address, area or estate..."
-                    value={formData.pickupAddress}
-                    latitude={formData.pickupLat}
-                    longitude={formData.pickupLng}
-                    mode="pickup"
-                    onChangeAddress={(val) => updateFormData({ pickupAddress: val })}
-                    onSelectLocation={(data) => {
-                      updateFormData({
-                        pickupAddress: data.address,
-                        pickupLat: data.latitude,
-                        pickupLng: data.longitude,
-                      });
-                    }}
-                    onFocus={() => handleFieldFocus('pickupAddress')}
-                  />
-                  {errors.pickupAddress && <Text style={styles.fieldError}>{errors.pickupAddress}</Text>}
-                </View>
-
-                {/* Extra Directions / Landmark */}
-                <View
-                  style={{ marginTop: 14 }}
-                  onLayout={(e) => {
-                    fieldYOffsets.current['pickupDirections'] = e.nativeEvent.layout.y;
-                  }}
-                >
-                  <Text style={styles.inputLabel}>
-                    Landmark / Pickup Directions (Optional)
-                  </Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="e.g. Opposite green gate, beside supermarket"
-                    placeholderTextColor="#94a3b8"
-                    value={formData.pickupDirections || ''}
-                    onChangeText={(val) => updateFormData({ pickupDirections: val })}
-                    onFocus={() => handleFieldFocus('pickupDirections')}
-                  />
-                </View>
-
-                {/* Save address checkbox */}
-                <TouchableOpacity
-                  style={styles.checkboxRow}
-                  onPress={() => updateFormData({ savePickupAddress: !formData.savePickupAddress })}
-                  activeOpacity={0.8}
-                >
-                  <View style={[styles.checkbox, formData.savePickupAddress && styles.checkboxActive]}>
-                    {formData.savePickupAddress && <Check size={14} color="#ffffff" strokeWidth={3} />}
-                  </View>
-                  <Text style={styles.checkboxLabel}>Save this address for future deliveries</Text>
-                </TouchableOpacity>
-
-                {formData.savePickupAddress && (
-                  <View
-                    style={{ marginTop: 8 }}
-                    onLayout={(e) => {
-                      fieldYOffsets.current['pickupAddressLabel'] = e.nativeEvent.layout.y;
-                    }}
-                  >
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Address label (e.g. Home, Office, Branch)"
-                      placeholderTextColor="#94a3b8"
-                      value={formData.pickupAddressLabel || ''}
-                      onChangeText={(val) => updateFormData({ pickupAddressLabel: val })}
-                      onFocus={() => handleFieldFocus('pickupAddressLabel')}
-                    />
-                  </View>
-                )}
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionHeading}>Package Details</Text>
+                <Text style={styles.sectionSub}>Select the size and specify the contents of your parcel.</Text>
               </View>
-            </View>
 
-            <TouchableOpacity
-              style={styles.primaryActionBtn}
-              onPress={handleStep2Next}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.primaryActionBtnText}>Continue to Drop-off Location</Text>
-              <ArrowRight size={18} color="#ffffff" strokeWidth={2.5} />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* ================= STEP 3: DROP-OFF LOCATION ================= */}
-        {step === 3 && (
-          <View
-            style={styles.stepSection}
-            onLayout={(e) => {
-              stepSectionY.current = e.nativeEvent.layout.y;
-            }}
-          >
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionHeading}>Drop-off Location</Text>
-              <Text style={styles.sectionSub}>Who is receiving the parcel and where should it be delivered?</Text>
-            </View>
-
-            {/* Saved Addresses Selector */}
-            {savedAddresses.length > 0 && (
-              <View style={styles.savedSection}>
-                <Text style={styles.savedHeading}>Pick from Saved Addresses:</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                  {savedAddresses.map((addr) => (
-                    <TouchableOpacity
-                      key={addr.id}
-                      style={styles.savedChip}
-                      onPress={() => handleSelectSavedDropoff(addr)}
-                    >
-                      <Tag size={12} color={colors.primary} />
-                      <Text style={styles.savedChipText}>{addr.label || addr.address.split(',')[0]}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            <View
-              style={styles.cardContainer}
-              onLayout={(e) => {
-                step3CardY.current = e.nativeEvent.layout.y;
-              }}
-            >
-              <View style={styles.cardPadding}>
-                <View
-                  onLayout={(e) => {
-                    fieldYOffsets.current['dropoffRecipientName'] = e.nativeEvent.layout.y;
-                  }}
-                >
-                  <Text style={styles.inputLabel}>
-                    Recipient Full Name <Text style={{ color: '#ef4444' }}>*</Text>
-                  </Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="e.g. Amaka Obi"
-                    placeholderTextColor="#94a3b8"
-                    value={formData.dropoffRecipientName}
-                    onChangeText={(val) => updateFormData({ dropoffRecipientName: val })}
-                    onFocus={() => handleFieldFocus('dropoffRecipientName')}
-                  />
-                  {errors.dropoffRecipientName && (
-                    <Text style={styles.fieldError}>{errors.dropoffRecipientName}</Text>
-                  )}
+              {/* Select Package Size Card */}
+              <View
+                style={styles.cardContainer}
+                onLayout={(e) => {
+                  step1SizeCardY.current = e.nativeEvent.layout.y;
+                }}
+              >
+                <View style={styles.cardHeader}>
+                  <Package size={16} color={colors.primary} strokeWidth={2.4} />
+                  <Text style={styles.cardTitle}>SELECT PACKAGE SIZE</Text>
                 </View>
 
-                <View
-                  style={{ marginTop: 14 }}
-                  onLayout={(e) => {
-                    fieldYOffsets.current['dropoffRecipientPhone'] = e.nativeEvent.layout.y;
-                  }}
-                >
-                  <Text style={styles.inputLabel}>
-                    Recipient Phone Number <Text style={{ color: '#ef4444' }}>*</Text>
-                  </Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="e.g. 08123456789"
-                    placeholderTextColor="#94a3b8"
-                    keyboardType="phone-pad"
-                    value={formData.dropoffRecipientPhone}
-                    onChangeText={(val) => updateFormData({ dropoffRecipientPhone: val })}
-                    onFocus={() => handleFieldFocus('dropoffRecipientPhone')}
-                  />
-                  {errors.dropoffRecipientPhone && (
-                    <Text style={styles.fieldError}>{errors.dropoffRecipientPhone}</Text>
-                  )}
-                </View>
+                <View style={styles.packageSizesGrid}>
+                  {PACKAGE_SIZES.map((s) => {
+                    const isSelected = selectedSize === s.label;
 
-                {/* Dropoff Address Autocomplete */}
-                <View
-                  style={{ marginTop: 14 }}
-                  onLayout={(e) => {
-                    fieldYOffsets.current['dropoffAddress'] = e.nativeEvent.layout.y;
-                  }}
-                >
-                  <AddressAutocompleteInput
-                    label="Destination Address"
-                    placeholder="Enter destination street address, apartment, or plaza..."
-                    value={formData.dropoffAddress}
-                    latitude={formData.dropoffLat}
-                    longitude={formData.dropoffLng}
-                    mode="dropoff"
-                    onChangeAddress={(val) => updateFormData({ dropoffAddress: val })}
-                    onSelectLocation={(data) => {
-                      updateFormData({
-                        dropoffAddress: data.address,
-                        dropoffLat: data.latitude,
-                        dropoffLng: data.longitude,
-                      });
-                    }}
-                    onFocus={() => handleFieldFocus('dropoffAddress')}
-                  />
-                  {errors.dropoffAddress && (
-                    <Text style={styles.fieldError}>{errors.dropoffAddress}</Text>
-                  )}
-                </View>
-
-                {/* Landmark / Extra Drop-off Directions */}
-                <View
-                  style={{ marginTop: 14 }}
-                  onLayout={(e) => {
-                    fieldYOffsets.current['dropoffDirections'] = e.nativeEvent.layout.y;
-                  }}
-                >
-                  <Text style={styles.inputLabel}>
-                    Landmark / Delivery Instructions (Optional)
-                  </Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="e.g. Call recipient upon arrival at security gate"
-                    placeholderTextColor="#94a3b8"
-                    value={formData.dropoffDirections || ''}
-                    onChangeText={(val) => updateFormData({ dropoffDirections: val })}
-                    onFocus={() => handleFieldFocus('dropoffDirections')}
-                  />
-                </View>
-
-                {/* Save address checkbox */}
-                <TouchableOpacity
-                  style={styles.checkboxRow}
-                  onPress={() => updateFormData({ saveDropoffAddress: !formData.saveDropoffAddress })}
-                  activeOpacity={0.8}
-                >
-                  <View style={[styles.checkbox, formData.saveDropoffAddress && styles.checkboxActive]}>
-                    {formData.saveDropoffAddress && <Check size={14} color="#ffffff" strokeWidth={3} />}
-                  </View>
-                  <Text style={styles.checkboxLabel}>Save this address for future deliveries</Text>
-                </TouchableOpacity>
-
-                {formData.saveDropoffAddress && (
-                  <View
-                    style={{ marginTop: 8 }}
-                    onLayout={(e) => {
-                      fieldYOffsets.current['dropoffAddressLabel'] = e.nativeEvent.layout.y;
-                    }}
-                  >
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Address label (e.g. Mum's House, Store, Office)"
-                      placeholderTextColor="#94a3b8"
-                      value={formData.dropoffAddressLabel || ''}
-                      onChangeText={(val) => updateFormData({ dropoffAddressLabel: val })}
-                      onFocus={() => handleFieldFocus('dropoffAddressLabel')}
-                    />
-                  </View>
-                )}
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={styles.primaryActionBtn}
-              onPress={handleStep3Next}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.primaryActionBtnText}>Continue to Review & Price</Text>
-              <ArrowRight size={18} color="#ffffff" strokeWidth={2.5} />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* ================= STEP 4: REVIEW & PRICE ================= */}
-        {step === 4 && (
-          <View style={styles.stepSection}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionHeading}>Review & Price</Text>
-              <Text style={styles.sectionSub}>Verified GPS route distance and estimated delivery fees.</Text>
-            </View>
-
-            {/* LIVE NATIVE ROUTE MAP */}
-            <RoutePreviewMap
-              pickupLat={formData.pickupLat}
-              pickupLng={formData.pickupLng}
-              dropoffLat={formData.dropoffLat}
-              dropoffLng={formData.dropoffLng}
-              distanceKm={pricing.distanceKm}
-              estimatedMinutes={pricing.estimatedMinutesRange}
-            />
-
-            {/* Vehicle Mode Selector */}
-            <View style={styles.cardContainer}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>CHOOSE DELIVERY VEHICLE</Text>
-              </View>
-              <View style={styles.cardPadding}>
-                <View style={styles.vehicleRow}>
-                  {VEHICLES.map((v) => {
-                    const Icon = v.icon;
-                    const active = selectedVehicle === v.id;
                     return (
                       <TouchableOpacity
-                        key={v.id}
-                        style={[styles.vehicleCard, active && styles.vehicleCardActive]}
-                        onPress={() => setSelectedVehicle(v.id)}
+                        key={s.label}
+                        style={[
+                          styles.packageSizeCard,
+                          isSelected && styles.packageSizeCardSelected,
+                        ]}
+                        onPress={() => {
+                          setSelectedSize(s.label);
+                          updateFormData({ weightKg: s.weight });
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
+                        }}
                         activeOpacity={0.8}
                       >
-                        <Icon size={24} color={active ? colors.primary : '#64748b'} />
-                        <Text style={[styles.vehicleLabel, active && styles.vehicleLabelActive]}>
-                          {v.label}
-                        </Text>
-                        <Text style={styles.vehicleDesc}>{v.desc.split(',')[0]}</Text>
+                        <View style={styles.packageSizeTop}>
+                          <Text style={[styles.packageSizeLabel, isSelected && { color: colors.primary }]}>
+                            {s.label}
+                          </Text>
+                          <View style={[styles.packageSizeSubBadge, isSelected && styles.packageSizeSubBadgeSelected]}>
+                            <Text style={[styles.packageSizeSubText, isSelected && { color: colors.primary }]}>
+                              {s.sub}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={styles.packageSizeDesc}>{s.desc}</Text>
                       </TouchableOpacity>
                     );
                   })}
                 </View>
-              </View>
-            </View>
 
-            {/* Trip Details Card */}
-            <View style={styles.cardContainer}>
-              <View style={styles.cardPadding}>
-                <View style={styles.reviewItem}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.reviewLabel}>PICKUP FROM</Text>
-                    <Text style={styles.reviewAddress}>{formData.pickupAddress}</Text>
-                    <Text style={styles.reviewPerson}>{formData.senderName} • {formData.senderPhone}</Text>
-                  </View>
-                  <TouchableOpacity onPress={() => setStep(2)} style={styles.editBtn}>
-                    <Edit2 size={14} color={colors.primary} />
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.reviewDivider} />
-
-                <View style={styles.reviewItem}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.reviewLabel}>DELIVER TO</Text>
-                    <Text style={styles.reviewAddress}>{formData.dropoffAddress}</Text>
-                    <Text style={styles.reviewPerson}>{formData.dropoffRecipientName} • {formData.dropoffRecipientPhone}</Text>
-                  </View>
-                  <TouchableOpacity onPress={() => setStep(3)} style={styles.editBtn}>
-                    <Edit2 size={14} color={colors.primary} />
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.reviewDivider} />
-
-                <View style={styles.reviewItem}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.reviewLabel}>PARCEL SPECIFICATIONS</Text>
-                    <Text style={styles.reviewAddress}>
-                      {selectedSize} Size ({formData.weightKg} kg) - {formData.packageContents}
-                    </Text>
-                    {formData.isFragile && (
-                      <Text style={[styles.reviewPerson, { color: '#d97706' }]}>
-                        ⚡ Fragile handling protection included
-                      </Text>
-                    )}
-                  </View>
-                  <TouchableOpacity onPress={() => setStep(1)} style={styles.editBtn}>
-                    <Edit2 size={14} color={colors.primary} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-
-            {/* Price Breakdown Card */}
-            <View style={styles.cardContainer}>
-              <View style={styles.cardPadding}>
-                <View style={styles.priceRow}>
-                  <Text style={styles.priceLabel}>Base Fare ({vehicleObj.label})</Text>
-                  <Text style={styles.priceVal}>{formatPrice(pricing.baseFee + vehicleBaseOffset)}</Text>
-                </View>
-                <View style={styles.priceRow}>
-                  <Text style={styles.priceLabel}>Distance Fee ({pricing.distanceKm} km)</Text>
-                  <Text style={styles.priceVal}>{formatPrice(pricing.distanceFee)}</Text>
-                </View>
-                {pricing.packageSurcharge > 0 && (
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>Weight Surcharge ({formData.weightKg} kg)</Text>
-                    <Text style={styles.priceVal}>+{formatPrice(pricing.packageSurcharge)}</Text>
-                  </View>
-                )}
-                {formData.isFragile && (
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>Fragile Protection Fee</Text>
-                    <Text style={styles.priceVal}>+{formatPrice(pricing.fragileSurcharge)}</Text>
-                  </View>
-                )}
-                <View style={styles.priceRow}>
-                  <Text style={styles.priceLabel}>Platform Service Fee</Text>
-                  <Text style={styles.priceVal}>{formatPrice(pricing.serviceFee)}</Text>
-                </View>
-
-                {pricing.isFreeDelivery && (
-                  <View style={[styles.priceRow, { backgroundColor: '#f0fdf4', padding: 6, borderRadius: 8 }]}>
-                    <Text style={[styles.priceLabel, { color: '#16a34a', fontWeight: '800' }]}>
-                      Free Delivery Promo
-                    </Text>
-                    <Text style={[styles.priceVal, { color: '#16a34a', fontWeight: '800' }]}>-100%</Text>
-                  </View>
-                )}
-
-                <View style={styles.priceDivider} />
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>Estimated Total</Text>
-                  <Text style={styles.totalVal}>{formatPrice(finalCalculatedFee)}</Text>
-                </View>
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={styles.primaryActionBtn}
-              onPress={handleStep4Next}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.primaryActionBtnText}>Proceed to Confirm & Pay</Text>
-              <ArrowRight size={18} color="#ffffff" strokeWidth={2.5} />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* ================= STEP 5: CONFIRM & PAY ================= */}
-        {step === 5 && (
-          <View style={styles.stepSection}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionHeading}>Confirm & Dispatch</Text>
-              <Text style={styles.sectionSub}>Review payment details and finalize courier booking.</Text>
-            </View>
-
-            {/* Payment Method Selector */}
-            <View style={styles.cardContainer}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>SELECT PAYMENT METHOD</Text>
-              </View>
-              <View style={styles.cardPadding}>
-                {/* Option 1: Wallet */}
-                <TouchableOpacity
-                  style={[
-                    styles.paymentOptionCard,
-                    paymentMethod === 'wallet' && styles.paymentOptionActive,
-                  ]}
-                  onPress={() => setPaymentMethod('wallet')}
-                  activeOpacity={0.8}
+                {/* Custom Weight (kg) */}
+                <View
+                  style={styles.weightWrap}
+                  onLayout={(e) => {
+                    fieldYOffsets.current['customWeight'] = e.nativeEvent.layout.y;
+                  }}
                 >
-                  <View style={styles.paymentOptionLeft}>
-                    <View style={[styles.paymentIconWrap, { backgroundColor: '#fff7ed' }]}>
-                      <Wallet size={20} color={colors.primary} />
-                    </View>
-                    <View>
-                      <Text style={styles.paymentOptionTitle}>LinkUp Wallet</Text>
-                      <Text style={styles.paymentOptionSub}>
-                        Available Balance: {formatPrice(walletBalance)}
-                      </Text>
-                    </View>
+                  <View style={styles.weightLabelRow}>
+                    <Text style={styles.inputLabel}>Custom Weight (kg)</Text>
+                    <Text style={styles.weightValueText}>{formData.weightKg} kg</Text>
                   </View>
-                  <View style={[styles.radioCircle, paymentMethod === 'wallet' && styles.radioCircleActive]}>
-                    {paymentMethod === 'wallet' && <Check size={12} color="#ffffff" strokeWidth={3} />}
-                  </View>
-                </TouchableOpacity>
-
-                {/* Option 2: Paystack Card / Transfer */}
-                <TouchableOpacity
-                  style={[
-                    styles.paymentOptionCard,
-                    paymentMethod === 'paystack' && styles.paymentOptionActive,
-                    { marginTop: 10 },
-                  ]}
-                  onPress={() => setPaymentMethod('paystack')}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.paymentOptionLeft}>
-                    <View style={[styles.paymentIconWrap, { backgroundColor: '#eff6ff' }]}>
-                      <CreditCard size={20} color="#2563eb" />
-                    </View>
-                    <View>
-                      <Text style={styles.paymentOptionTitle}>Paystack Gateway</Text>
-                      <Text style={styles.paymentOptionSub}>Debit Card, Bank Transfer, USSD</Text>
-                    </View>
-                  </View>
-                  <View style={[styles.radioCircle, paymentMethod === 'paystack' && styles.radioCircleActive]}>
-                    {paymentMethod === 'paystack' && <Check size={12} color="#ffffff" strokeWidth={3} />}
-                  </View>
-                </TouchableOpacity>
+                  <TextInput
+                    style={styles.textInput}
+                    keyboardType="numeric"
+                    value={formData.weightKg ? formData.weightKg.toString() : ''}
+                    onChangeText={(val) => {
+                      const parsed = parseFloat(val);
+                      if (!isNaN(parsed)) updateFormData({ weightKg: parsed });
+                    }}
+                    onFocus={() => handleFieldFocus('customWeight')}
+                    placeholder="e.g. 1.5"
+                    placeholderTextColor="#94a3b8"
+                  />
+                </View>
               </View>
-            </View>
 
-            {/* Escrow Guarantee Banner */}
-            <View style={styles.trustBanner}>
-              <ShieldCheck size={20} color="#16a34a" />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.trustBannerTitle}>LinkUp Escrow Protection Active</Text>
+              {/* What are you sending? */}
+              <View
+                style={styles.cardContainer}
+                onLayout={(e) => {
+                  step1CardY.current = e.nativeEvent.layout.y;
+                }}
+              >
+                <View
+                  style={styles.cardPadding}
+                  onLayout={(e) => {
+                    fieldYOffsets.current['packageContents'] = e.nativeEvent.layout.y;
+                  }}
+                >
+                  <Text style={styles.inputLabel}>
+                    What are you sending? <Text style={{ color: '#ef4444' }}>*</Text>
+                  </Text>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="e.g. Books, Laptop in bag, Clothes, Documents"
+                    placeholderTextColor="#94a3b8"
+                    value={formData.packageContents}
+                    onChangeText={(val) => updateFormData({ packageContents: val })}
+                    onFocus={() => handleFieldFocus('packageContents')}
+                  />
+                  {errors.packageContents && (
+                    <Text style={styles.fieldError}>{errors.packageContents}</Text>
+                  )}
+
+                  {/* Fragile Item Toggle */}
+                  <TouchableOpacity
+                    style={styles.fragileRow}
+                    onPress={() => {
+                      updateFormData({ isFragile: !formData.isFragile });
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.fragileLeft}>
+                      <View style={styles.fragileIconCircle}>
+                        <Sparkles size={16} color="#d97706" />
+                      </View>
+                      <View>
+                        <Text style={styles.fragileTitle}>Fragile Item (+₦300)</Text>
+                        <Text style={styles.fragileSub}>Requires extra delicate handling</Text>
+                      </View>
+                    </View>
+                    <View style={[styles.checkbox, formData.isFragile && styles.checkboxActive]}>
+                      {formData.isFragile && <Check size={14} color="#ffffff" strokeWidth={3} />}
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Insurance Banner */}
+              <View style={styles.trustBanner}>
+                <ShieldCheck size={18} color="#2563eb" />
                 <Text style={styles.trustBannerText}>
-                  Your payment is safely held until the package is delivered and confirmed.
+                  Every parcel is insured and safely tracked from pickup to delivery.
                 </Text>
               </View>
+
+              {/* Continue Button */}
+              <TouchableOpacity
+                style={styles.primaryActionBtn}
+                onPress={handleStep1Next}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.primaryActionBtnText}>Continue to Pickup Location</Text>
+                <ArrowRight size={18} color="#ffffff" strokeWidth={2.5} />
+              </TouchableOpacity>
             </View>
+          )}
 
-            {/* Terms checkbox */}
-            <TouchableOpacity
-              style={styles.checkboxRow}
-              onPress={() => setAgreedToTerms(!agreedToTerms)}
-              activeOpacity={0.8}
+          {/* ================= STEP 2: PICKUP LOCATION ================= */}
+          {step === 2 && (
+            <View
+              style={styles.stepSection}
+              onLayout={(e) => {
+                stepSectionY.current = e.nativeEvent.layout.y;
+              }}
             >
-              <View style={[styles.checkbox, agreedToTerms && styles.checkboxActive]}>
-                {agreedToTerms && <Check size={14} color="#ffffff" strokeWidth={3} />}
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionHeading}>Pickup Location</Text>
+                <Text style={styles.sectionSub}>Where should the verified courier pick up this package?</Text>
               </View>
-              <Text style={styles.checkboxLabel}>
-                I accept the LinkUp Send terms & conditions and understand courier insurance rules.
-              </Text>
-            </TouchableOpacity>
 
-            {/* Confirm & Request Courier Button */}
-            <TouchableOpacity
-              style={[styles.primaryActionBtn, loading && { opacity: 0.8 }]}
-              onPress={handleConfirmAndPay}
-              disabled={loading}
-              activeOpacity={0.85}
-            >
-              {loading ? (
-                <ActivityIndicator size="small" color="#ffffff" />
-              ) : (
-                <>
-                  <Navigation size={20} color="#ffffff" strokeWidth={2.4} />
-                  <Text style={styles.primaryActionBtnText}>
-                    Confirm & Request Courier ({formatPrice(finalCalculatedFee)})
-                  </Text>
-                </>
+              {/* Saved Addresses Selector */}
+              {savedAddresses.length > 0 && (
+                <View style={styles.savedSection}>
+                  <Text style={styles.savedHeading}>Pick from Saved Addresses:</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                    {savedAddresses.map((addr) => (
+                      <TouchableOpacity
+                        key={addr.id}
+                        style={styles.savedChip}
+                        onPress={() => handleSelectSavedPickup(addr)}
+                      >
+                        <Tag size={12} color={colors.primary} />
+                        <Text style={styles.savedChipText}>{addr.label || addr.address.split(',')[0]}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
               )}
-            </TouchableOpacity>
-          </View>
-        )}
 
-        {/* ================= STEP 6: PAYMENT SUCCESS ================= */}
-        {step === 6 && (
-          <StepPaymentSuccess
-            orderId={confirmedOrderId}
-            formData={formData}
-            onReset={() => {
-              setStep(1);
-              setFormData({
-                senderName: profile?.full_name || '',
-                senderPhone: profile?.phone || '',
-                pickupAddress: '',
-                pickupLat: null,
-                pickupLng: null,
-                pickupDirections: '',
-                savePickupAddress: false,
-                pickupAddressLabel: '',
+              <View
+                style={styles.cardContainer}
+                onLayout={(e) => {
+                  step2CardY.current = e.nativeEvent.layout.y;
+                }}
+              >
+                <View style={styles.cardPadding}>
+                  <View
+                    onLayout={(e) => {
+                      fieldYOffsets.current['senderName'] = e.nativeEvent.layout.y;
+                    }}
+                  >
+                    <Text style={styles.inputLabel}>
+                      Sender Full Name <Text style={{ color: '#ef4444' }}>*</Text>
+                    </Text>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="e.g. John Doe"
+                      placeholderTextColor="#94a3b8"
+                      value={formData.senderName}
+                      onChangeText={(val) => updateFormData({ senderName: val })}
+                      onFocus={() => handleFieldFocus('senderName')}
+                    />
+                    {errors.senderName && <Text style={styles.fieldError}>{errors.senderName}</Text>}
+                  </View>
 
-                dropoffRecipientName: '',
-                dropoffRecipientPhone: '',
-                dropoffAddress: '',
-                dropoffLat: null,
-                dropoffLng: null,
-                dropoffDirections: '',
-                saveDropoffAddress: false,
-                dropoffAddressLabel: '',
+                  <View
+                    style={{ marginTop: 14 }}
+                    onLayout={(e) => {
+                      fieldYOffsets.current['senderPhone'] = e.nativeEvent.layout.y;
+                    }}
+                  >
+                    <Text style={styles.inputLabel}>
+                      Sender Contact Phone <Text style={{ color: '#ef4444' }}>*</Text>
+                    </Text>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="e.g. 08012345678"
+                      placeholderTextColor="#94a3b8"
+                      keyboardType="phone-pad"
+                      maxLength={11}
+                      value={formData.senderPhone}
+                      onChangeText={(val) => updateFormData({ senderPhone: val })}
+                      onFocus={() => handleFieldFocus('senderPhone')}
+                    />
+                    {errors.senderPhone && <Text style={styles.fieldError}>{errors.senderPhone}</Text>}
+                  </View>
 
-                weightKg: 1.5,
-                packageContents: '',
-                isFragile: false,
-              });
-            }}
-          />
-        )}
-      </ScrollView>
+                  {/* Pickup Address Autocomplete */}
+                  <View
+                    style={{ marginTop: 14 }}
+                    onLayout={(e) => {
+                      fieldYOffsets.current['pickupAddress'] = e.nativeEvent.layout.y;
+                    }}
+                  >
+                    <AddressAutocompleteInput
+                      label="Pickup Address"
+                      placeholder="Enter pickup street address, area or estate..."
+                      value={formData.pickupAddress}
+                      latitude={formData.pickupLat}
+                      longitude={formData.pickupLng}
+                      mode="pickup"
+                      onChangeAddress={(val) => updateFormData({ pickupAddress: val })}
+                      onSelectLocation={(data) => {
+                        updateFormData({
+                          pickupAddress: data.address,
+                          pickupLat: data.latitude,
+                          pickupLng: data.longitude,
+                        });
+                      }}
+                      onFocus={() => handleFieldFocus('pickupAddress')}
+                    />
+                    {errors.pickupAddress && <Text style={styles.fieldError}>{errors.pickupAddress}</Text>}
+                  </View>
+
+                  {/* Extra Directions / Landmark */}
+                  <View
+                    style={{ marginTop: 14 }}
+                    onLayout={(e) => {
+                      fieldYOffsets.current['pickupDirections'] = e.nativeEvent.layout.y;
+                    }}
+                  >
+                    <Text style={styles.inputLabel}>
+                      Landmark / Pickup Directions (Optional)
+                    </Text>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="e.g. Opposite green gate, beside supermarket"
+                      placeholderTextColor="#94a3b8"
+                      value={formData.pickupDirections || ''}
+                      onChangeText={(val) => updateFormData({ pickupDirections: val })}
+                      onFocus={() => handleFieldFocus('pickupDirections')}
+                    />
+                  </View>
+
+                  {/* Save address checkbox */}
+                  <TouchableOpacity
+                    style={styles.checkboxRow}
+                    onPress={() => updateFormData({ savePickupAddress: !formData.savePickupAddress })}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[styles.checkbox, formData.savePickupAddress && styles.checkboxActive]}>
+                      {formData.savePickupAddress && <Check size={14} color="#ffffff" strokeWidth={3} />}
+                    </View>
+                    <Text style={styles.checkboxLabel}>Save this address for future deliveries</Text>
+                  </TouchableOpacity>
+
+                  {formData.savePickupAddress && (
+                    <View
+                      style={{ marginTop: 8 }}
+                      onLayout={(e) => {
+                        fieldYOffsets.current['pickupAddressLabel'] = e.nativeEvent.layout.y;
+                      }}
+                    >
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="Address label (e.g. Home, Office, Branch)"
+                        placeholderTextColor="#94a3b8"
+                        value={formData.pickupAddressLabel || ''}
+                        onChangeText={(val) => updateFormData({ pickupAddressLabel: val })}
+                        onFocus={() => handleFieldFocus('pickupAddressLabel')}
+                      />
+                    </View>
+                  )}
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.primaryActionBtn}
+                onPress={handleStep2Next}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.primaryActionBtnText}>Continue to Drop-off Location</Text>
+                <ArrowRight size={18} color="#ffffff" strokeWidth={2.5} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* ================= STEP 3: DROP-OFF LOCATION ================= */}
+          {step === 3 && (
+            <View
+              style={styles.stepSection}
+              onLayout={(e) => {
+                stepSectionY.current = e.nativeEvent.layout.y;
+              }}
+            >
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionHeading}>Drop-off Location</Text>
+                <Text style={styles.sectionSub}>Who is receiving the parcel and where should it be delivered?</Text>
+              </View>
+
+              {/* Saved Addresses Selector */}
+              {savedAddresses.length > 0 && (
+                <View style={styles.savedSection}>
+                  <Text style={styles.savedHeading}>Pick from Saved Addresses:</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                    {savedAddresses.map((addr) => (
+                      <TouchableOpacity
+                        key={addr.id}
+                        style={styles.savedChip}
+                        onPress={() => handleSelectSavedDropoff(addr)}
+                      >
+                        <Tag size={12} color={colors.primary} />
+                        <Text style={styles.savedChipText}>{addr.label || addr.address.split(',')[0]}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
+              <View
+                style={styles.cardContainer}
+                onLayout={(e) => {
+                  step3CardY.current = e.nativeEvent.layout.y;
+                }}
+              >
+                <View style={styles.cardPadding}>
+                  <View
+                    onLayout={(e) => {
+                      fieldYOffsets.current['dropoffRecipientName'] = e.nativeEvent.layout.y;
+                    }}
+                  >
+                    <Text style={styles.inputLabel}>
+                      Recipient Full Name <Text style={{ color: '#ef4444' }}>*</Text>
+                    </Text>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="e.g. Amaka Obi"
+                      placeholderTextColor="#94a3b8"
+                      value={formData.dropoffRecipientName}
+                      onChangeText={(val) => updateFormData({ dropoffRecipientName: val })}
+                      onFocus={() => handleFieldFocus('dropoffRecipientName')}
+                    />
+                    {errors.dropoffRecipientName && (
+                      <Text style={styles.fieldError}>{errors.dropoffRecipientName}</Text>
+                    )}
+                  </View>
+
+                  <View
+                    style={{ marginTop: 14 }}
+                    onLayout={(e) => {
+                      fieldYOffsets.current['dropoffRecipientPhone'] = e.nativeEvent.layout.y;
+                    }}
+                  >
+                    <Text style={styles.inputLabel}>
+                      Recipient Phone Number <Text style={{ color: '#ef4444' }}>*</Text>
+                    </Text>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="e.g. 08123456789"
+                      placeholderTextColor="#94a3b8"
+                      keyboardType="phone-pad"
+                      maxLength={11}
+                      value={formData.dropoffRecipientPhone}
+                      onChangeText={(val) => updateFormData({ dropoffRecipientPhone: val })}
+                      onFocus={() => handleFieldFocus('dropoffRecipientPhone')}
+                    />
+                    {errors.dropoffRecipientPhone && (
+                      <Text style={styles.fieldError}>{errors.dropoffRecipientPhone}</Text>
+                    )}
+                  </View>
+
+                  {/* Dropoff Address Autocomplete */}
+                  <View
+                    style={{ marginTop: 14 }}
+                    onLayout={(e) => {
+                      fieldYOffsets.current['dropoffAddress'] = e.nativeEvent.layout.y;
+                    }}
+                  >
+                    <AddressAutocompleteInput
+                      label="Destination Address"
+                      placeholder="Enter destination street address, apartment, or plaza..."
+                      value={formData.dropoffAddress}
+                      latitude={formData.dropoffLat}
+                      longitude={formData.dropoffLng}
+                      mode="dropoff"
+                      onChangeAddress={(val) => updateFormData({ dropoffAddress: val })}
+                      onSelectLocation={(data) => {
+                        updateFormData({
+                          dropoffAddress: data.address,
+                          dropoffLat: data.latitude,
+                          dropoffLng: data.longitude,
+                        });
+                      }}
+                      onFocus={() => handleFieldFocus('dropoffAddress')}
+                    />
+                    {errors.dropoffAddress && (
+                      <Text style={styles.fieldError}>{errors.dropoffAddress}</Text>
+                    )}
+                  </View>
+
+                  {/* Landmark / Extra Drop-off Directions */}
+                  <View
+                    style={{ marginTop: 14 }}
+                    onLayout={(e) => {
+                      fieldYOffsets.current['dropoffDirections'] = e.nativeEvent.layout.y;
+                    }}
+                  >
+                    <Text style={styles.inputLabel}>
+                      Landmark / Delivery Instructions (Optional)
+                    </Text>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="e.g. Call recipient upon arrival at security gate"
+                      placeholderTextColor="#94a3b8"
+                      value={formData.dropoffDirections || ''}
+                      onChangeText={(val) => updateFormData({ dropoffDirections: val })}
+                      onFocus={() => handleFieldFocus('dropoffDirections')}
+                    />
+                  </View>
+
+                  {/* Save address checkbox */}
+                  <TouchableOpacity
+                    style={styles.checkboxRow}
+                    onPress={() => updateFormData({ saveDropoffAddress: !formData.saveDropoffAddress })}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[styles.checkbox, formData.saveDropoffAddress && styles.checkboxActive]}>
+                      {formData.saveDropoffAddress && <Check size={14} color="#ffffff" strokeWidth={3} />}
+                    </View>
+                    <Text style={styles.checkboxLabel}>Save this address for future deliveries</Text>
+                  </TouchableOpacity>
+
+                  {formData.saveDropoffAddress && (
+                    <View
+                      style={{ marginTop: 8 }}
+                      onLayout={(e) => {
+                        fieldYOffsets.current['dropoffAddressLabel'] = e.nativeEvent.layout.y;
+                      }}
+                    >
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="Address label (e.g. Mum's House, Store, Office)"
+                        placeholderTextColor="#94a3b8"
+                        value={formData.dropoffAddressLabel || ''}
+                        onChangeText={(val) => updateFormData({ dropoffAddressLabel: val })}
+                        onFocus={() => handleFieldFocus('dropoffAddressLabel')}
+                      />
+                    </View>
+                  )}
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.primaryActionBtn}
+                onPress={handleStep3Next}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.primaryActionBtnText}>Continue to Review & Price</Text>
+                <ArrowRight size={18} color="#ffffff" strokeWidth={2.5} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* ================= STEP 4: REVIEW & PRICE ================= */}
+          {step === 4 && (
+            <View style={styles.stepSection}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionHeading}>Review & Price</Text>
+                <Text style={styles.sectionSub}>Verified GPS route distance and estimated delivery fees.</Text>
+              </View>
+
+              {/* LIVE NATIVE ROUTE MAP */}
+              <RoutePreviewMap
+                pickupLat={formData.pickupLat}
+                pickupLng={formData.pickupLng}
+                dropoffLat={formData.dropoffLat}
+                dropoffLng={formData.dropoffLng}
+                distanceKm={pricing.distanceKm}
+                estimatedMinutes={pricing.estimatedMinutesRange}
+              />
+
+              {/* Vehicle Mode Selector */}
+              <View style={styles.cardContainer}>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.cardTitle}>CHOOSE DELIVERY VEHICLE</Text>
+                </View>
+                <View style={styles.cardPadding}>
+                  <View style={styles.vehicleRow}>
+                    {VEHICLES.map((v) => {
+                      const Icon = v.icon;
+                      const active = selectedVehicle === v.id;
+                      return (
+                        <TouchableOpacity
+                          key={v.id}
+                          style={[styles.vehicleCard, active && styles.vehicleCardActive]}
+                          onPress={() => setSelectedVehicle(v.id)}
+                          activeOpacity={0.8}
+                        >
+                          <Icon size={24} color={active ? colors.primary : '#64748b'} />
+                          <Text style={[styles.vehicleLabel, active && styles.vehicleLabelActive]}>
+                            {v.label}
+                          </Text>
+                          <Text style={styles.vehicleDesc}>{v.desc.split(',')[0]}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              </View>
+
+              {/* Trip Details Card */}
+              <View style={styles.cardContainer}>
+                <View style={styles.cardPadding}>
+                  <View style={styles.reviewItem}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.reviewLabel}>PICKUP FROM</Text>
+                      <Text style={styles.reviewAddress}>{formData.pickupAddress}</Text>
+                      <Text style={styles.reviewPerson}>{formData.senderName} • {formData.senderPhone}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setStep(2)} style={styles.editBtn}>
+                      <Edit2 size={14} color={colors.primary} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.reviewDivider} />
+
+                  <View style={styles.reviewItem}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.reviewLabel}>DELIVER TO</Text>
+                      <Text style={styles.reviewAddress}>{formData.dropoffAddress}</Text>
+                      <Text style={styles.reviewPerson}>{formData.dropoffRecipientName} • {formData.dropoffRecipientPhone}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setStep(3)} style={styles.editBtn}>
+                      <Edit2 size={14} color={colors.primary} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.reviewDivider} />
+
+                  <View style={styles.reviewItem}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.reviewLabel}>PARCEL SPECIFICATIONS</Text>
+                      <Text style={styles.reviewAddress}>
+                        {selectedSize} Size ({formData.weightKg} kg) - {formData.packageContents}
+                      </Text>
+                      {formData.isFragile && (
+                        <Text style={[styles.reviewPerson, { color: '#d97706' }]}>
+                          ⚡ Fragile handling protection included
+                        </Text>
+                      )}
+                    </View>
+                    <TouchableOpacity onPress={() => setStep(1)} style={styles.editBtn}>
+                      <Edit2 size={14} color={colors.primary} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+
+              {/* Price Breakdown Card */}
+              <View style={styles.cardContainer}>
+                <View style={styles.cardPadding}>
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceLabel}>Base Fare ({vehicleObj.label})</Text>
+                    <Text style={styles.priceVal}>{formatPrice(pricing.baseFee + vehicleBaseOffset)}</Text>
+                  </View>
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceLabel}>Distance Fee ({pricing.distanceKm} km)</Text>
+                    <Text style={styles.priceVal}>{formatPrice(pricing.distanceFee)}</Text>
+                  </View>
+                  {pricing.packageSurcharge > 0 && (
+                    <View style={styles.priceRow}>
+                      <Text style={styles.priceLabel}>Weight Surcharge ({formData.weightKg} kg)</Text>
+                      <Text style={styles.priceVal}>+{formatPrice(pricing.packageSurcharge)}</Text>
+                    </View>
+                  )}
+                  {formData.isFragile && (
+                    <View style={styles.priceRow}>
+                      <Text style={styles.priceLabel}>Fragile Protection Fee</Text>
+                      <Text style={styles.priceVal}>+{formatPrice(pricing.fragileSurcharge)}</Text>
+                    </View>
+                  )}
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceLabel}>Platform Service Fee</Text>
+                    <Text style={styles.priceVal}>{formatPrice(pricing.serviceFee)}</Text>
+                  </View>
+
+                  {pricing.isFreeDelivery && (
+                    <View style={[styles.priceRow, { backgroundColor: '#f0fdf4', padding: 6, borderRadius: 8 }]}>
+                      <Text style={[styles.priceLabel, { color: '#16a34a', fontWeight: '800' }]}>
+                        Free Delivery Promo
+                      </Text>
+                      <Text style={[styles.priceVal, { color: '#16a34a', fontWeight: '800' }]}>-100%</Text>
+                    </View>
+                  )}
+
+                  <View style={styles.priceDivider} />
+                  <View style={styles.totalRow}>
+                    <Text style={styles.totalLabel}>Estimated Total</Text>
+                    <Text style={styles.totalVal}>{formatPrice(finalCalculatedFee)}</Text>
+                  </View>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.primaryActionBtn}
+                onPress={handleStep4Next}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.primaryActionBtnText}>Proceed to Confirm & Pay</Text>
+                <ArrowRight size={18} color="#ffffff" strokeWidth={2.5} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* ================= STEP 5: CONFIRM & PAY ================= */}
+          {step === 5 && (
+            <View style={styles.stepSection}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionHeading}>Confirm & Dispatch</Text>
+                <Text style={styles.sectionSub}>Review payment details and finalize courier booking.</Text>
+              </View>
+
+              {/* Payment Method Selector */}
+              <View style={styles.cardContainer}>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.cardTitle}>SELECT PAYMENT METHOD</Text>
+                </View>
+                <View style={styles.cardPadding}>
+                  {/* Option 1: Wallet */}
+                  <TouchableOpacity
+                    style={[
+                      styles.paymentOptionCard,
+                      paymentMethod === 'wallet' && styles.paymentOptionActive,
+                    ]}
+                    onPress={() => setPaymentMethod('wallet')}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.paymentOptionLeft}>
+                      <View style={[styles.paymentIconWrap, { backgroundColor: '#fff7ed' }]}>
+                        <Wallet size={20} color={colors.primary} />
+                      </View>
+                      <View>
+                        <Text style={styles.paymentOptionTitle}>LinkUp Wallet</Text>
+                        <Text style={styles.paymentOptionSub}>
+                          Available Balance: {formatPrice(walletBalance)}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={[styles.radioCircle, paymentMethod === 'wallet' && styles.radioCircleActive]}>
+                      {paymentMethod === 'wallet' && <Check size={12} color="#ffffff" strokeWidth={3} />}
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Option 2: Paystack Card / Transfer */}
+                  <TouchableOpacity
+                    style={[
+                      styles.paymentOptionCard,
+                      paymentMethod === 'paystack' && styles.paymentOptionActive,
+                      { marginTop: 10 },
+                    ]}
+                    onPress={() => setPaymentMethod('paystack')}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.paymentOptionLeft}>
+                      <View style={[styles.paymentIconWrap, { backgroundColor: '#eff6ff' }]}>
+                        <CreditCard size={20} color="#2563eb" />
+                      </View>
+                      <View>
+                        <Text style={styles.paymentOptionTitle}>Paystack Gateway</Text>
+                        <Text style={styles.paymentOptionSub}>Debit Card, Bank Transfer, USSD</Text>
+                      </View>
+                    </View>
+                    <View style={[styles.radioCircle, paymentMethod === 'paystack' && styles.radioCircleActive]}>
+                      {paymentMethod === 'paystack' && <Check size={12} color="#ffffff" strokeWidth={3} />}
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Escrow Guarantee Banner */}
+              <View style={styles.trustBanner}>
+                <ShieldCheck size={20} color="#16a34a" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.trustBannerTitle}>LinkUp Escrow Protection Active</Text>
+                  <Text style={styles.trustBannerText}>
+                    Your payment is safely held until the package is delivered and confirmed.
+                  </Text>
+                </View>
+              </View>
+
+              {/* Terms checkbox */}
+              <TouchableOpacity
+                style={styles.checkboxRow}
+                onPress={() => setAgreedToTerms(!agreedToTerms)}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.checkbox, agreedToTerms && styles.checkboxActive]}>
+                  {agreedToTerms && <Check size={14} color="#ffffff" strokeWidth={3} />}
+                </View>
+                <Text style={styles.checkboxLabel}>
+                  I accept the LinkUp Send terms & conditions and understand courier insurance rules.
+                </Text>
+              </TouchableOpacity>
+
+              {/* Confirm & Request Courier Button */}
+              <TouchableOpacity
+                style={[styles.primaryActionBtn, loading && { opacity: 0.8 }]}
+                onPress={handleConfirmAndPay}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <>
+                    <Navigation size={20} color="#ffffff" strokeWidth={2.4} />
+                    <Text style={styles.primaryActionBtnText}>
+                      Confirm & Request Courier ({formatPrice(finalCalculatedFee)})
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* ================= STEP 6: PAYMENT SUCCESS ================= */}
+          {step === 6 && (
+            <StepPaymentSuccess
+              orderId={confirmedOrderId}
+              formData={formData}
+              onReset={() => {
+                setStep(1);
+                setFormData({
+                  senderName: profile?.full_name || '',
+                  senderPhone: profile?.phone || '',
+                  pickupAddress: '',
+                  pickupLat: null,
+                  pickupLng: null,
+                  pickupDirections: '',
+                  savePickupAddress: false,
+                  pickupAddressLabel: '',
+
+                  dropoffRecipientName: '',
+                  dropoffRecipientPhone: '',
+                  dropoffAddress: '',
+                  dropoffLat: null,
+                  dropoffLng: null,
+                  dropoffDirections: '',
+                  saveDropoffAddress: false,
+                  dropoffAddressLabel: '',
+
+                  weightKg: 1.5,
+                  packageContents: '',
+                  isFragile: false,
+                });
+              }}
+            />
+          )}
+        </ScrollView>
       </KeyboardAvoidingView>
 
       {/* Floating Orange Customer Support Button */}

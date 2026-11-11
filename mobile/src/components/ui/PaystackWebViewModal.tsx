@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   Modal,
   View,
@@ -6,11 +6,20 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   StyleSheet,
+  Platform,
 } from 'react-native';
-import { WebView, WebViewNavigation } from 'react-native-webview';
 import { SafeView } from './SafeView';
 import { X, Lock, ShieldCheck } from 'lucide-react-native';
 import { ENV } from '../../config/env';
+
+let NativeWebView: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    NativeWebView = require('react-native-webview').WebView;
+  } catch (e) {
+    NativeWebView = null;
+  }
+}
 
 export interface PaystackWebViewModalProps {
   visible: boolean;
@@ -32,7 +41,7 @@ export function PaystackWebViewModal({
   onCancel,
 }: PaystackWebViewModalProps) {
   const [loading, setLoading] = useState(true);
-  const webViewRef = useRef<WebView>(null);
+  const webViewRef = useRef<any>(null);
 
   // Generate unique transaction reference if none passed
   const txRef = reference || `LKP_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
@@ -79,15 +88,27 @@ export function PaystackWebViewModal({
             ref: '${txRef}',
             metadata: ${JSON.stringify(metadata || {})},
             callback: function(response) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({
+              var payload = JSON.stringify({
                 status: 'success',
                 reference: response.reference
-              }));
+              });
+              if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                window.ReactNativeWebView.postMessage(payload);
+              }
+              if (window.parent && window.parent !== window) {
+                window.parent.postMessage(payload, '*');
+              }
             },
             onClose: function() {
-              window.ReactNativeWebView.postMessage(JSON.stringify({
+              var payload = JSON.stringify({
                 status: 'cancelled'
-              }));
+              });
+              if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                window.ReactNativeWebView.postMessage(payload);
+              }
+              if (window.parent && window.parent !== window) {
+                window.parent.postMessage(payload, '*');
+              }
             }
           });
           handler.openIframe();
@@ -97,6 +118,26 @@ export function PaystackWebViewModal({
     </body>
     </html>
   `;
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !visible) return;
+
+    const handleWebMessage = (event: MessageEvent) => {
+      try {
+        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (data?.status === 'success' && data?.reference) {
+          onSuccess(data.reference);
+        } else if (data?.status === 'cancelled') {
+          onCancel();
+        }
+      } catch (e) {}
+    };
+
+    window.addEventListener('message', handleWebMessage);
+    return () => {
+      window.removeEventListener('message', handleWebMessage);
+    };
+  }, [visible, onSuccess, onCancel]);
 
   const handleMessage = (event: any) => {
     try {
@@ -111,7 +152,7 @@ export function PaystackWebViewModal({
     }
   };
 
-  const handleNavigationStateChange = (state: WebViewNavigation) => {
+  const handleNavigationStateChange = (state: any) => {
     const { url } = state;
     if (url.includes('standard.paystack.co/close') || url.includes('linkup-cancel')) {
       onCancel();
@@ -150,25 +191,39 @@ export function PaystackWebViewModal({
           </Text>
         </View>
 
-        {/* In-App WebView */}
+        {/* In-App WebView (Native) or iframe (Web) */}
         <View style={styles.webviewContainer}>
-          <WebView
-            ref={webViewRef}
-            source={{ html: paystackHtml }}
-            onMessage={handleMessage}
-            onNavigationStateChange={handleNavigationStateChange}
-            onLoadEnd={() => setLoading(false)}
-            javaScriptEnabled={true}
-            domStorageEnabled={true}
-            startInLoadingState={true}
-            renderLoading={() => (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#EB7D30" />
-                <Text style={styles.loadingText}>Initializing Paystack Secure Gateway...</Text>
-              </View>
-            )}
-            style={styles.webview}
-          />
+          {Platform.OS === 'web' || !NativeWebView ? (
+            <iframe
+              srcDoc={paystackHtml}
+              style={{
+                width: '100%',
+                height: '100%',
+                border: 'none',
+                backgroundColor: '#f8fafc',
+              }}
+              onLoad={() => setLoading(false)}
+              title="Paystack Checkout"
+            />
+          ) : (
+            <NativeWebView
+              ref={webViewRef}
+              source={{ html: paystackHtml }}
+              onMessage={handleMessage}
+              onNavigationStateChange={handleNavigationStateChange}
+              onLoadEnd={() => setLoading(false)}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              startInLoadingState={true}
+              renderLoading={() => (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#EB7D30" />
+                  <Text style={styles.loadingText}>Initializing Paystack Secure Gateway...</Text>
+                </View>
+              )}
+              style={styles.webview}
+            />
+          )}
         </View>
       </SafeView>
     </Modal>

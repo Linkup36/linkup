@@ -148,12 +148,18 @@ export function AdminSendPackagesTab() {
   const formatNaira = (val: number) => '₦' + (val || 0).toLocaleString('en-NG');
 
   const filteredPackages = packages.filter((p) => {
-    const q = searchQuery.toLowerCase();
+    const q = searchQuery.toLowerCase().trim();
+    const recipientName = p.dropoff_recipient_name || p.recipient_name || '';
+    const recipientPhone = p.dropoff_recipient_phone || p.recipient_phone || '';
     const matchesSearch =
       (p.tracking_code || '').toLowerCase().includes(q) ||
       (p.sender_name || '').toLowerCase().includes(q) ||
-      (p.recipient_name || '').toLowerCase().includes(q) ||
-      (p.recipient_phone || '').toLowerCase().includes(q) ||
+      (p.sender_phone || '').toLowerCase().includes(q) ||
+      recipientName.toLowerCase().includes(q) ||
+      recipientPhone.toLowerCase().includes(q) ||
+      (p.rider_name || '').toLowerCase().includes(q) ||
+      (p.pickup_address || '').toLowerCase().includes(q) ||
+      (p.dropoff_address || '').toLowerCase().includes(q) ||
       (p.id || '').toLowerCase().includes(q);
 
     const matchesStatus =
@@ -313,20 +319,20 @@ export function AdminSendPackagesTab() {
                     </Text>
                     <Text style={styles.contactDivider}>&bull;</Text>
                     <Text style={styles.contactItem} numberOfLines={1}>
-                      To: {pkg.recipient_name || 'Recipient'}
+                      To: {pkg.dropoff_recipient_name || pkg.recipient_name || 'Recipient'}
                     </Text>
                   </View>
 
                   {/* Footer with delivery fee */}
                   <View style={styles.pkgFooter}>
                     <View style={styles.fragileWrap}>
-                      {pkg.is_fragile && (
+                      {(pkg.package_details?.is_fragile || pkg.is_fragile) && (
                         <View style={styles.fragileBadge}>
                           <Text style={styles.fragileText}>FRAGILE</Text>
                         </View>
                       )}
                       <Text style={styles.pkgSizeText}>
-                        {(pkg.package_size || 'Standard').toUpperCase()}
+                        {(pkg.package_details?.contents || pkg.package_size || 'Standard').toUpperCase()}
                       </Text>
                     </View>
                     <Text style={styles.pkgFee}>{formatNaira(pkg.delivery_fee)}</Text>
@@ -395,24 +401,141 @@ export function AdminSendPackagesTab() {
               </View>
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Recipient Name</Text>
-                <Text style={styles.detailValue}>{selectedPkg.recipient_name || 'N/A'}</Text>
+                <Text style={styles.detailValue}>
+                  {selectedPkg.dropoff_recipient_name || selectedPkg.recipient_name || 'N/A'}
+                </Text>
               </View>
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Recipient Phone</Text>
-                <Text style={styles.detailValue}>{selectedPkg.recipient_phone || 'N/A'}</Text>
+                <Text style={styles.detailValue}>
+                  {selectedPkg.dropoff_recipient_phone || selectedPkg.recipient_phone || 'N/A'}
+                </Text>
               </View>
             </View>
 
-            {/* Addresses */}
+            {/* Locations & Instructions */}
             <View style={styles.detailSection}>
-              <Text style={styles.detailSectionTitle}>Locations</Text>
+              <Text style={styles.detailSectionTitle}>Locations & Instructions</Text>
               <View style={styles.locationItem}>
                 <Text style={styles.locationLabel}>Pickup Point</Text>
                 <Text style={styles.locationVal}>{selectedPkg.pickup_address || 'N/A'}</Text>
+                {selectedPkg.pickup_directions ? (
+                  <Text style={styles.directionNote}>
+                    Note: "{selectedPkg.pickup_directions}"
+                  </Text>
+                ) : null}
               </View>
-              <View style={[styles.locationItem, { marginTop: 8 }]}>
+              <View style={[styles.locationItem, { marginTop: 10 }]}>
                 <Text style={styles.locationLabel}>Dropoff Point</Text>
                 <Text style={styles.locationVal}>{selectedPkg.dropoff_address || 'N/A'}</Text>
+                {selectedPkg.dropoff_directions ? (
+                  <Text style={styles.directionNote}>
+                    Note: "{selectedPkg.dropoff_directions}"
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+
+            {/* Package Specifications */}
+            <View style={styles.detailSection}>
+              <Text style={styles.detailSectionTitle}>Package Specifications</Text>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Content / Description</Text>
+                <Text style={styles.detailValue}>
+                  {selectedPkg.package_details?.contents || selectedPkg.package_size || 'Standard Parcel'}
+                </Text>
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Weight</Text>
+                <Text style={styles.detailValue}>
+                  {selectedPkg.package_details?.weight_kg ? `${selectedPkg.package_details.weight_kg} kg` : 'Standard (< 5 kg)'}
+                </Text>
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Handling</Text>
+                <Text
+                  style={[
+                    styles.detailValue,
+                    (selectedPkg.package_details?.is_fragile || selectedPkg.is_fragile) && { color: '#EF4444' },
+                  ]}
+                >
+                  {(selectedPkg.package_details?.is_fragile || selectedPkg.is_fragile)
+                    ? '⚠️ Fragile Handling'
+                    : 'Standard'}
+                </Text>
+              </View>
+              {selectedPkg.package_details?.declared_value ? (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Declared Value</Text>
+                  <Text style={styles.detailValue}>
+                    {formatNaira(selectedPkg.package_details.declared_value)}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+
+            {/* Assigned Courier Rider */}
+            <View style={styles.detailSection}>
+              <Text style={styles.detailSectionTitle}>Assigned Courier Rider</Text>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Rider Name</Text>
+                <Text style={styles.detailValue}>
+                  {selectedPkg.rider_name || 'Unassigned / Looking for rider'}
+                </Text>
+              </View>
+              {selectedPkg.rider_phone ? (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Rider Phone</Text>
+                  <Text style={styles.detailValue}>{selectedPkg.rider_phone}</Text>
+                </View>
+              ) : null}
+              {selectedPkg.rider_vehicle ? (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Vehicle Type</Text>
+                  <Text style={styles.detailValue}>{selectedPkg.rider_vehicle}</Text>
+                </View>
+              ) : null}
+            </View>
+
+            {/* Financial & Settlement */}
+            <View style={styles.detailSection}>
+              <Text style={styles.detailSectionTitle}>Financial & Settlement</Text>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Payment Status</Text>
+                <Text
+                  style={[
+                    styles.detailValue,
+                    { color: selectedPkg.payment_status === 'paid' ? '#059669' : '#D97706' },
+                  ]}
+                >
+                  {selectedPkg.payment_status === 'paid' ? 'Paid ✅' : 'Pending Payment ⏳'}
+                </Text>
+              </View>
+              {selectedPkg.payment_ref ? (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Payment Ref</Text>
+                  <Text style={[styles.detailValue, { fontSize: 11, color: '#64748B' }]}>
+                    {selectedPkg.payment_ref}
+                  </Text>
+                </View>
+              ) : null}
+              <View style={styles.finGridRow}>
+                <View style={styles.finCol}>
+                  <Text style={styles.finColLabel}>GROSS FEE</Text>
+                  <Text style={styles.finColVal}>{formatNaira(selectedPkg.delivery_fee)}</Text>
+                </View>
+                <View style={[styles.finCol, { backgroundColor: '#ECFDF5' }]}>
+                  <Text style={[styles.finColLabel, { color: '#047857' }]}>RIDER (80%)</Text>
+                  <Text style={[styles.finColVal, { color: '#065F46' }]}>
+                    {formatNaira(Math.round(Number(selectedPkg.delivery_fee || 0) * 0.8))}
+                  </Text>
+                </View>
+                <View style={[styles.finCol, { backgroundColor: '#EEF2FF' }]}>
+                  <Text style={[styles.finColLabel, { color: '#4338CA' }]}>SYSTEM (20%)</Text>
+                  <Text style={[styles.finColVal, { color: '#3730A3' }]}>
+                    {formatNaira(Math.round(Number(selectedPkg.delivery_fee || 0) * 0.2))}
+                  </Text>
+                </View>
               </View>
             </View>
 
@@ -754,5 +877,38 @@ const styles = StyleSheet.create({
   actionPillText: {
     fontSize: 11,
     fontWeight: '800',
+  },
+  directionNote: {
+    fontSize: 11,
+    fontStyle: 'italic',
+    color: '#B45309',
+    marginTop: 3,
+  },
+  finGridRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  finCol: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  finColLabel: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  finColVal: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#0F172A',
+    marginTop: 2,
   },
 });

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
 const STORAGE_KEY = "linkup_sound_enabled";
+export const LINKUP_SOUND_PLAYBACK_RATE = 1.25; // 1.25x speed (snappy, energetic & natural)
 
 let audioCtx: AudioContext | null = null;
 let gainNode: GainNode | null = null;
@@ -14,8 +15,9 @@ const initAudio = () => {
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
     if (AudioContextClass) {
       audioCtx = new AudioContextClass();
-      audioElement = new Audio("/sounds/notification.mp3");
+      audioElement = new Audio("/sounds/linkup-notification.mp3");
       audioElement.crossOrigin = "anonymous";
+      audioElement.playbackRate = LINKUP_SOUND_PLAYBACK_RATE;
       
       const track = audioCtx.createMediaElementSource(audioElement);
       gainNode = audioCtx.createGain();
@@ -24,17 +26,39 @@ const initAudio = () => {
       track.connect(gainNode).connect(audioCtx.destination);
     } else {
       // Fallback for older browsers
-      audioElement = new Audio("/sounds/notification.mp3");
+      audioElement = new Audio("/sounds/linkup-notification.mp3");
+      audioElement.playbackRate = LINKUP_SOUND_PLAYBACK_RATE;
       audioElement.volume = 1.0;
     }
   } catch (error) {
     console.warn("Failed to initialize audio:", error);
+    if (!audioElement) {
+      audioElement = new Audio("/sounds/linkup-notification.mp3");
+      audioElement.playbackRate = LINKUP_SOUND_PLAYBACK_RATE;
+    }
   }
 };
 
+// Auto-unlock Web Audio on first user interaction so async background websocket events can play sound
+if (typeof window !== "undefined") {
+  const unlockAudio = () => {
+    initAudio();
+    if (audioCtx && audioCtx.state === "suspended") {
+      audioCtx.resume().catch(() => {});
+    }
+    window.removeEventListener("click", unlockAudio);
+    window.removeEventListener("touchstart", unlockAudio);
+    window.removeEventListener("keydown", unlockAudio);
+  };
+  window.addEventListener("click", unlockAudio, { once: true });
+  window.addEventListener("touchstart", unlockAudio, { once: true });
+  window.addEventListener("keydown", unlockAudio, { once: true });
+}
+
 export function useSoundSettings() {
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
-    return localStorage.getItem(STORAGE_KEY) === "true";
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored !== "false"; // Enabled by default unless explicitly disabled
   });
 
   useEffect(() => {
@@ -53,6 +77,7 @@ export function useSoundSettings() {
         }
 
         if (audioElement) {
+          audioElement.playbackRate = LINKUP_SOUND_PLAYBACK_RATE;
           audioElement.currentTime = 0;
           audioElement.play().catch(error => {
             console.warn("Failed to play audio:", error);
@@ -73,7 +98,8 @@ export function useSoundSettings() {
 
 export const playNotificationSound = () => {
   try {
-    if (localStorage.getItem(STORAGE_KEY) === "true") {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored !== "false") {
       initAudio();
       
       if (audioCtx && audioCtx.state === 'suspended') {
@@ -81,8 +107,11 @@ export const playNotificationSound = () => {
       }
       
       if (audioElement) {
+        audioElement.playbackRate = LINKUP_SOUND_PLAYBACK_RATE;
         audioElement.currentTime = 0;
-        audioElement.play().catch(() => {});
+        audioElement.play().catch(err => {
+          console.warn("[SoundSettings] Audio play blocked or failed:", err);
+        });
       }
     }
   } catch { }

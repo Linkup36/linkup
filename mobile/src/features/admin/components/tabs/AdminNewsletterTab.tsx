@@ -76,6 +76,7 @@ export function AdminNewsletterTab() {
   const [content, setContent] = useState('');
   const [targetAudience, setTargetAudience] = useState<'all' | 'buyers' | 'sellers' | 'logistics'>('all');
   const [sending, setSending] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   const fetchCampaignsAndMetrics = async () => {
     try {
@@ -131,7 +132,7 @@ export function AdminNewsletterTab() {
     toast.info('Template Applied', { description: `Loaded "${tmpl.name}" preset.` });
   };
 
-  const handleSendBroadcast = async () => {
+  const handleSendBroadcast = () => {
     if (!title.trim() || !subject.trim() || !content.trim()) {
       toast.warning('Incomplete Broadcast', {
         description: 'Please enter Title, Subject, and Content body.',
@@ -139,49 +140,58 @@ export function AdminNewsletterTab() {
       return;
     }
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    Alert.alert(
-      'Dispatch Broadcast Announcement',
-      `Send "${subject}" to ${targetAudience.toUpperCase()} audience (${
-        targetAudience === 'all'
-          ? audienceCounts.all
-          : (audienceCounts as any)[targetAudience] || 0
-      } users)?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Dispatch Now',
-          onPress: async () => {
-            setSending(true);
-            try {
-              const { error } = await supabase.from('newsletter_campaigns').insert({
-                title: title.trim(),
-                subject: subject.trim(),
-                content: content.trim(),
-                target_audience: targetAudience,
-                status: 'sent',
-                sent_at: new Date().toISOString(),
-              });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setShowConfirmModal(true);
+  };
 
-              if (error) throw error;
+  const executeDispatch = async () => {
+    setSending(true);
+    try {
+      // 1. Insert campaign record into newsletter_campaigns
+      const { data: campaign, error: campaignError } = await (supabase as any)
+        .from('newsletter_campaigns')
+        .insert({
+          title: title.trim(),
+          subject: subject.trim(),
+          content: content.trim(),
+          target_audience: targetAudience,
+          status: 'sent',
+          sent_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
 
-              toast.success('Broadcast Dispatched! 🚀', {
-                description: `Campaign delivered to ${targetAudience} audience.`,
-              });
+      if (campaignError) throw campaignError;
 
-              setTitle('');
-              setSubject('');
-              setContent('');
-              fetchCampaignsAndMetrics();
-            } catch (err: any) {
-              toast.error('Dispatch Failed', { description: err.message });
-            } finally {
-              setSending(false);
-            }
+      // 2. Trigger email broadcast Edge Function if configured
+      try {
+        await supabase.functions.invoke('send-newsletter', {
+          body: {
+            title: title.trim(),
+            subject: subject.trim(),
+            content: content.trim(),
+            target_audience: targetAudience,
+            campaign_id: campaign?.id,
           },
-        },
-      ]
-    );
+        });
+      } catch (fnErr) {
+        console.warn('[AdminNewsletterTab] send-newsletter function invoke warning:', fnErr);
+      }
+
+      toast.success('Broadcast Dispatched! 🚀', {
+        description: `Delivered to ${targetAudience.toUpperCase()} audience.`,
+      });
+
+      setShowConfirmModal(false);
+      setTitle('');
+      setSubject('');
+      setContent('');
+      fetchCampaignsAndMetrics();
+    } catch (err: any) {
+      toast.error('Dispatch Failed', { description: err.message });
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -344,6 +354,43 @@ export function AdminNewsletterTab() {
           </View>
         )}
       </View>
+
+      {/* Confirmation Modal (Cross-Platform for Web, Android, iOS) */}
+      <AppModal
+        visible={showConfirmModal}
+        onClose={() => setShowConfirmModal(false)}
+        title="Dispatch Announcement"
+        subtitle={`Broadcast to ${targetAudience.toUpperCase()} audience (${
+          targetAudience === 'all'
+            ? audienceCounts.all
+            : (audienceCounts as any)[targetAudience] || 0
+        } registered users)?`}
+        variant="warning"
+        primaryButton={{
+          label: sending ? 'Dispatching...' : 'Dispatch Now 🚀',
+          onPress: executeDispatch,
+          loading: sending,
+          disabled: sending,
+          variant: 'primary',
+        }}
+        secondaryButton={{
+          label: 'Cancel',
+          onPress: () => setShowConfirmModal(false),
+          disabled: sending,
+          variant: 'outline',
+        }}
+      >
+        <View style={styles.modalPreviewBox}>
+          <Text style={styles.modalPreviewLabel}>CAMPAIGN TITLE</Text>
+          <Text style={styles.modalPreviewTitle}>{title}</Text>
+          <Text style={[styles.modalPreviewLabel, { marginTop: 8 }]}>BANNER SUBJECT</Text>
+          <Text style={styles.modalPreviewSubject}>{subject}</Text>
+          <Text style={[styles.modalPreviewLabel, { marginTop: 8 }]}>MESSAGE CONTENT</Text>
+          <Text style={styles.modalPreviewBody} numberOfLines={4}>
+            {content}
+          </Text>
+        </View>
+      </AppModal>
     </View>
   );
 }
@@ -544,5 +591,37 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#94A3B8',
     marginTop: 6,
+  },
+  modalPreviewBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 14,
+    marginTop: 6,
+  },
+  modalPreviewLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#94A3B8',
+    letterSpacing: 0.8,
+  },
+  modalPreviewTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginTop: 2,
+  },
+  modalPreviewSubject: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#EA580C',
+    marginTop: 2,
+  },
+  modalPreviewBody: {
+    fontSize: 12,
+    color: '#475569',
+    marginTop: 2,
+    lineHeight: 17,
   },
 });

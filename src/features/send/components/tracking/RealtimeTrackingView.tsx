@@ -33,6 +33,7 @@ import { TrackingMap } from './TrackingMap';
 import { toast } from 'sonner';
 import { SendSupportModal } from '../support/SendSupportModal';
 import { SendCancelOrderModal } from './SendCancelOrderModal';
+import { formatLocationAddress } from '../../utils/addressFormatter';
 
 interface TrackingViewProps {
   order: SendOrder;
@@ -57,9 +58,18 @@ export function RealtimeTrackingView({
   };
 
   const isCancelled = order.status === 'cancelled';
-  const isFindingRider = order.status === 'finding_rider' || order.status === 'pending_payment';
+  const isPaid = order.payment_status === 'paid';
+  const isPendingPayment = !isPaid && (order.status === 'pending_payment' || order.payment_status === 'pending');
+  const isFindingRider = isPaid && (order.status === 'finding_rider' || order.status === 'pending_payment');
   const isRiderAssigned = order.status === 'assigned_rider' || order.status === 'pickup' || order.status === 'on_the_way';
   const isDelivered = order.status === 'delivered';
+
+  const isInterstate =
+    ((order.package_details as any)?.distance_km && (order.package_details as any).distance_km > 55) ||
+    (order.delivery_fee && Number(order.delivery_fee) >= 15000);
+
+  const formattedPickup = formatLocationAddress(order.pickup_address, order.pickup_lat, order.pickup_lng);
+  const formattedDropoff = formatLocationAddress(order.dropoff_address, order.dropoff_lat, order.dropoff_lng);
 
   const pickupCoords =
     order.pickup_lat && order.pickup_lng
@@ -104,16 +114,22 @@ export function RealtimeTrackingView({
 
   const trackingSteps = [
     {
-      label: 'Finding a rider',
-      state: isFindingRider ? 'In Progress' : 'Completed',
-      time: '10:30 AM',
+      label: 'Payment',
+      state: isPaid ? 'Completed' : 'In Progress',
+      time: order.paid_at ? new Date(order.paid_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+      icon: ShieldCheck,
+    },
+    {
+      label: isInterstate ? 'Finding Carrier' : 'Finding Rider',
+      state: isPendingPayment ? 'Pending' : isFindingRider ? 'In Progress' : 'Completed',
+      time: '',
       icon: Search,
     },
     {
-      label: 'Rider Assigned',
-      state: isFindingRider ? 'Pending' : order.status === 'assigned_rider' ? 'In Progress' : 'Completed',
+      label: isInterstate ? 'Transit Carrier' : 'Rider Assigned',
+      state: isPendingPayment || isFindingRider ? 'Pending' : order.status === 'assigned_rider' ? 'In Progress' : 'Completed',
       time: '',
-      icon: Bike,
+      icon: isInterstate ? Truck : Bike,
     },
     {
       label: 'Pick up',
@@ -168,13 +184,23 @@ export function RealtimeTrackingView({
               <p className="text-[10px] text-muted-foreground mt-1">Status</p>
               <p className="text-xs font-bold text-red-700">Order Closed</p>
             </div>
+          ) : isPendingPayment ? (
+            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-right sm:text-right">
+              <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px] font-bold animate-pulse">
+                Pending Payment ⏳
+              </Badge>
+              <p className="text-[10px] text-muted-foreground mt-1">Payment Status</p>
+              <p className="text-xs font-bold text-amber-700">Payment Required</p>
+            </div>
           ) : isFindingRider ? (
             <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-right sm:text-right">
               <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-bold">
-                Finding a rider
+                {isInterstate ? 'Assigning Transit Carrier' : 'Finding a rider'}
               </Badge>
               <p className="text-[10px] text-muted-foreground mt-1">Estimated Delivery</p>
-              <p className="text-xs font-bold text-emerald-700">15 – 45 mins</p>
+              <p className="text-xs font-bold text-emerald-700">
+                {isInterstate ? '1 – 2 Business Days' : '15 – 45 mins'}
+              </p>
             </div>
           ) : (
             <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between gap-3 sm:max-w-xs">
@@ -289,8 +315,8 @@ export function RealtimeTrackingView({
             </button>
           </div>
         </Card>
-      ) : isFindingRider ? (
-        /* ============ FINDING RIDER VIEW (IMAGE 2) ============ */
+      ) : (isFindingRider || isPendingPayment) ? (
+        /* ============ FINDING RIDER & PENDING PAYMENT VIEW ============ */
         <div className="space-y-4">
           {/* Radar Radar Searching Card */}
           <Card className="rounded-2xl border-border/70 p-4 bg-card shadow-sm">
@@ -306,10 +332,18 @@ export function RealtimeTrackingView({
 
               <div className="flex-1 text-center sm:text-left space-y-1">
                 <h4 className="text-sm font-bold font-heading text-foreground">
-                  We're finding the best rider for you
+                  {isPendingPayment
+                    ? 'Payment required to assign rider'
+                    : isInterstate
+                    ? 'Searching for verified transit carrier'
+                    : "We're finding the best rider for you"}
                 </h4>
                 <p className="text-xs text-muted-foreground">
-                  Please sit tight while we connect you with an available rider near you.
+                  {isPendingPayment
+                    ? 'Your delivery order is ready. Please complete payment to broadcast to nearby dispatch riders.'
+                    : isInterstate
+                    ? 'Connecting your parcel with an inter-state logistics carrier for long-distance transport.'
+                    : 'Please sit tight while we connect you with an available rider near you.'}
                 </p>
               </div>
             </div>
@@ -318,7 +352,9 @@ export function RealtimeTrackingView({
             <div className="mt-3 p-2.5 rounded-xl bg-orange-500/10 border border-orange-500/20 flex items-center gap-2 text-xs text-orange-900 dark:text-orange-200">
               <Info className="w-4 h-4 text-primary shrink-0" />
               <span className="text-[11px]">
-                You will be notified as soon as a rider accepts your order.
+                {isPendingPayment
+                  ? 'Dispatchers are notified immediately upon payment confirmation.'
+                  : 'You will be notified as soon as a verified courier accepts your order.'}
               </span>
             </div>
           </Card>
@@ -340,7 +376,7 @@ export function RealtimeTrackingView({
                   <span className="w-3 h-3 rounded-full border-2 border-primary bg-background shrink-0 mt-0.5" />
                   <div className="text-xs">
                     <p className="font-bold text-foreground">Pickup Location</p>
-                    <p className="text-muted-foreground mt-0.5">{order.pickup_address}</p>
+                    <p className="text-muted-foreground mt-0.5 font-medium">{formattedPickup}</p>
                   </div>
                 </div>
                 <div className="text-right shrink-0">
@@ -357,7 +393,7 @@ export function RealtimeTrackingView({
                   <span className="w-3 h-3 rounded-full border-2 border-emerald-500 bg-background shrink-0 mt-0.5" />
                   <div className="text-xs">
                     <p className="font-bold text-foreground">Drop-off Location</p>
-                    <p className="text-muted-foreground mt-0.5">{order.dropoff_address}</p>
+                    <p className="text-muted-foreground mt-0.5 font-medium">{formattedDropoff}</p>
                   </div>
                 </div>
                 <div className="text-right shrink-0">
@@ -373,6 +409,7 @@ export function RealtimeTrackingView({
                   <p className="font-bold text-foreground">Package Details</p>
                   <p className="text-muted-foreground text-[11px]">
                     Send a Package • {order.package_details?.weight_kg <= 2 ? 'Small • Under 2kg' : `${order.package_details?.weight_kg}kg`}
+                    {isInterstate && ' • Inter-State Delivery'}
                   </p>
                   <p className="text-xs font-semibold text-foreground mt-0.5">
                     {order.package_details?.contents || 'Books'}
@@ -382,24 +419,32 @@ export function RealtimeTrackingView({
             </CardContent>
           </Card>
 
-          {/* Payment Summary Card matching Image 2 */}
+          {/* Payment Summary Card */}
           <Card className="rounded-2xl border-border/70 p-4 bg-card shadow-sm space-y-2.5 text-xs">
             <div className="flex items-center gap-2 pb-2 border-b font-bold font-heading text-foreground">
               <span className="p-1 rounded-lg bg-orange-500/10 text-primary">💳</span>
               <span>Payment Summary</span>
             </div>
             <div className="flex justify-between text-muted-foreground">
-              <span>Total Paid</span>
+              <span>{isPaid ? 'Total Paid' : 'Amount Due'}</span>
               <span className="font-bold text-foreground">₦{Number(order.delivery_fee || 2500).toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-muted-foreground">
               <span>Payment Method</span>
-              <span className="font-medium text-foreground">Paystack (Online)</span>
+              <span className="font-medium text-foreground">
+                {order.payment_ref?.startsWith('WALLET') ? 'LinkUp Wallet' : 'Paystack Online'}
+              </span>
             </div>
             <div className="flex justify-between items-center text-muted-foreground">
               <span>Payment Status</span>
-              <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-bold">
-                Paid
+              <Badge
+                className={
+                  isPaid
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-bold'
+                    : 'bg-amber-50 text-amber-700 border-amber-200 text-[10px] font-bold'
+                }
+              >
+                {isPaid ? 'PAID' : 'PENDING PAYMENT'}
               </Badge>
             </div>
           </Card>
@@ -415,7 +460,7 @@ export function RealtimeTrackingView({
             </div>
           </div>
 
-          {/* Buttons: Contact Support & Cancel Order */}
+          {/* Action buttons */}
           <div className="grid grid-cols-2 gap-3 pt-1">
             <button
               type="button"
@@ -534,8 +579,8 @@ export function RealtimeTrackingView({
                 <span className="w-3 h-3 rounded-full border-2 border-primary bg-background shrink-0 mt-0.5" />
                 <div className="text-xs">
                   <p className="font-bold text-foreground">Pickup Location</p>
-                  <p className="text-muted-foreground mt-0.5">
-                    {order.pickup_address || '12 Unity Estate, Lifecamp, Abuja.'}
+                  <p className="text-muted-foreground mt-0.5 font-medium">
+                    {formattedPickup}
                   </p>
                 </div>
               </div>
@@ -547,8 +592,8 @@ export function RealtimeTrackingView({
                 <span className="w-3 h-3 rounded-full border-2 border-emerald-500 bg-background shrink-0 mt-0.5" />
                 <div className="text-xs">
                   <p className="font-bold text-foreground">Drop-off Location</p>
-                  <p className="text-muted-foreground mt-0.5">
-                    {order.dropoff_address || 'Suite 8, Nicon Plaza, Wuse 2, Abuja.'}
+                  <p className="text-muted-foreground mt-0.5 font-medium">
+                    {formattedDropoff}
                   </p>
                 </div>
               </div>

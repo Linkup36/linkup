@@ -189,6 +189,8 @@ declare module '@react-navigation/native' {
   export const NavigationContainer: any;
   export const useNavigation: <T = any>() => T;
   export const useRoute: <T = any>() => T;
+  export const useFocusEffect: (callback: () => any) => void;
+  export const useIsFocused: () => boolean;
   export type NavigatorScreenParams<T> = any;
   export type RouteProp<T, K extends keyof T> = { params: T[K] };
 }

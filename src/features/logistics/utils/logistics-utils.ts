@@ -8,18 +8,24 @@
 export const ensureAddressString = (val: any): string | null => {
     if (!val) return null;
     
-    // If it's a simple string, return it if not empty
+    // If it's a simple string, return it if not empty and not dummy placeholder
     if (typeof val === 'string') {
         const trimmed = val.trim();
-        return trimmed.length > 0 ? trimmed : null;
+        if (trimmed.length === 0) return null;
+        if (trimmed.replace(/[.\-_,\s]/g, '').length === 0) return null;
+        if (['na', 'n/a', 'null', 'undefined', 'none', 'unknown'].includes(trimmed.toLowerCase())) return null;
+        return trimmed;
     }
     
     // If it's a JSONB object, look for 'address' or 'name' fields
     if (typeof val === 'object') {
-        const addr = val.address || val.display_address || val.full_address || val.name;
+        const addr = val.address || val.display_address || val.full_address || val.address_line || val.name;
         if (typeof addr === 'string') {
             const trimmed = addr.trim();
-            return trimmed.length > 0 ? trimmed : null;
+            if (trimmed.length === 0) return null;
+            if (trimmed.replace(/[.\-_,\s]/g, '').length === 0) return null;
+            if (['na', 'n/a', 'null', 'undefined', 'none', 'unknown'].includes(trimmed.toLowerCase())) return null;
+            return trimmed;
         }
     }
     
@@ -68,7 +74,14 @@ export const getDeliveryAddress = (shipment: any) => {
     const recipientAddr = ensureAddressString(recipient?.address_line || recipient?.address);
     if (recipientAddr) return recipientAddr;
 
-    // Priority 3: Order direct dropoff/shipping address
+    // Priority 3: Try city and delivery zone names
+    const zoneName = ensureAddressString(recipient?.delivery_zones?.name || shipment?.delivery_zones?.name || order?.delivery_zones?.name);
+    const cityName = ensureAddressString(recipient?.cities?.name || shipment?.cities?.name || order?.cities?.name);
+    if (zoneName && cityName) return `${zoneName}, ${cityName}`;
+    if (zoneName) return zoneName;
+    if (cityName) return cityName;
+
+    // Priority 4: Order direct dropoff/shipping address
     const orderDropoff = ensureAddressString(
         order?.dropoff_address ||
         order?.delivery_address ||
@@ -77,12 +90,12 @@ export const getDeliveryAddress = (shipment: any) => {
     );
     if (orderDropoff) return orderDropoff;
 
-    // Priority 4: Buyer profile address (Legacy fallback)
+    // Priority 5: Buyer profile address (Legacy fallback)
     const buyer = order?.buyer || (order?.profiles && !Array.isArray(order.profiles) ? order.profiles : null) || shipment.buyer;
     const buyerAddr = ensureAddressString(buyer?.address);
     if (buyerAddr) return buyerAddr;
 
-    return "Drop-off Node";
+    return "Drop-off address not specified";
 };
 
 export const getBuyerContact = (shipment: any) => {
@@ -224,5 +237,12 @@ export const calculateRiderEarnings = (
 
     // Fallback for regular shipment delivery fee
     const deliveryFee = Number(shipment.delivery_fee || shipment.order?.shipping_fee || 0);
-    return Math.round(deliveryFee);
+    const crossZoneFee = Number(
+        shipment.cross_zone_fee ||
+        shipment.cross_zone_fee_amount ||
+        shipment.order?.cross_zone_fee ||
+        0
+    );
+    const baseEarnings = deliveryFee > 0 ? deliveryFee : 1500;
+    return Math.round(baseEarnings + crossZoneFee);
 };

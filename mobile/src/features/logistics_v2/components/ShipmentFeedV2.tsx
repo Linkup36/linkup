@@ -217,7 +217,8 @@ export function ShipmentFeedV2({ defaultFilter = 'all' }: ShipmentFeedV2Props) {
                 (s: any) =>
                   !broadcastData.some(
                     (b: any) => b.order_id === s.order_id || b.id === s.id
-                  )
+                  ) &&
+                  ['awaiting_agent', 'broadcast'].includes(s.order?.status)
               )
               .map((s: any) => {
                 const o = s.order || {};

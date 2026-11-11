@@ -170,7 +170,11 @@ export function ShipmentFeedV2({ defaultFilter = "all" }: { defaultFilter?: stri
 
                     if (!pendingShipmentsError && pendingShipments && pendingShipments.length > 0) {
                         const directMissions = pendingShipments
-                            .filter((s: any) => !broadcastData.some((b: any) => b.order_id === s.order_id || b.id === s.id))
+                            .filter(
+                                (s: any) =>
+                                    !broadcastData.some((b: any) => b.order_id === s.order_id || b.id === s.id) &&
+                                    ['awaiting_agent', 'broadcast'].includes(s.order?.status)
+                            )
                             .map((s: any) => {
                                 const o = s.order || {};
                                 const earnings = calculateRiderEarnings(s, { payoutRate: riderPayoutRate, minPayout: riderMinPayout });

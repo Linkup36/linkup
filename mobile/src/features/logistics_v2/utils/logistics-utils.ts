@@ -12,14 +12,21 @@ export const ensureAddressString = (val: any): string | null => {
 
   if (typeof val === 'string') {
     const trimmed = val.trim();
-    return trimmed.length > 0 ? trimmed : null;
+    if (trimmed.length === 0) return null;
+    // Reject dummy/empty placeholders like "..", ".", "--", "n/a"
+    if (trimmed.replace(/[.\-_,\s]/g, '').length === 0) return null;
+    if (['na', 'n/a', 'null', 'undefined', 'none', 'unknown'].includes(trimmed.toLowerCase())) return null;
+    return trimmed;
   }
 
   if (typeof val === 'object') {
-    const addr = val.address || val.display_address || val.full_address || val.name;
+    const addr = val.address || val.display_address || val.full_address || val.address_line || val.name;
     if (typeof addr === 'string') {
       const trimmed = addr.trim();
-      return trimmed.length > 0 ? trimmed : null;
+      if (trimmed.length === 0) return null;
+      if (trimmed.replace(/[.\-_,\s]/g, '').length === 0) return null;
+      if (['na', 'n/a', 'null', 'undefined', 'none', 'unknown'].includes(trimmed.toLowerCase())) return null;
+      return trimmed;
     }
   }
 
@@ -56,7 +63,8 @@ export const getDeliveryAddress = (shipment: any): string => {
     shipment.dropoff_address ||
     shipment.delivery_address ||
     shipment.delivery_address_text ||
-    shipment.destination_address
+    shipment.destination_address ||
+    shipment.dropoff_location
   );
   if (directDropoff) return directDropoff;
 
@@ -64,6 +72,13 @@ export const getDeliveryAddress = (shipment: any): string => {
   const recipient = order?.order_recipient?.[0] || order?.order_recipient;
   const recipientAddr = ensureAddressString(recipient?.address_line || recipient?.address);
   if (recipientAddr) return recipientAddr;
+
+  // Try city and delivery zone names
+  const zoneName = ensureAddressString(recipient?.delivery_zones?.name || shipment?.delivery_zones?.name || order?.delivery_zones?.name);
+  const cityName = ensureAddressString(recipient?.cities?.name || shipment?.cities?.name || order?.cities?.name);
+  if (zoneName && cityName) return `${zoneName}, ${cityName}`;
+  if (zoneName) return zoneName;
+  if (cityName) return cityName;
 
   const orderDropoff = ensureAddressString(
     order?.dropoff_address ||
@@ -77,7 +92,7 @@ export const getDeliveryAddress = (shipment: any): string => {
   const buyerAddr = ensureAddressString(buyer?.address);
   if (buyerAddr) return buyerAddr;
 
-  return 'Drop-off Node';
+  return 'Drop-off address not specified';
 };
 
 export const getBuyerContact = (shipment: any): { name: string; phone: string } => {
@@ -249,5 +264,14 @@ export const calculateRiderEarnings = (
   }
 
   const deliveryFee = Number(shipment.delivery_fee || shipment.order?.shipping_fee || 0);
-  return Math.round(deliveryFee);
+  const crossZoneFee = Number(
+    shipment.cross_zone_fee ||
+    shipment.cross_zone_fee_amount ||
+    shipment.order?.cross_zone_fee ||
+    0
+  );
+
+  // Ensure cross-zone fee is added to rider's cut
+  const baseEarnings = deliveryFee > 0 ? deliveryFee : 1500;
+  return Math.round(baseEarnings + crossZoneFee);
 };

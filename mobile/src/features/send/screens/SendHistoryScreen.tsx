@@ -30,6 +30,9 @@ import {
   Wallet,
   ArrowLeft,
   X,
+  CreditCard,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -37,17 +40,24 @@ import { RootStackParamList } from '../../../navigation/types';
 import { colors } from '../../../theme/colors';
 import { toast } from '../../../components/ui/GooeyToast';
 import * as Haptics from 'expo-haptics';
+import { formatLocationAddress } from '../utils/addressFormatter';
+import { PaystackWebViewModal } from '../../../components/ui/PaystackWebViewModal';
 
 interface SendOrder {
   id: string;
   created_at: string;
   status: string;
+  payment_status?: string;
   sender_name?: string;
   sender_phone?: string;
   pickup_address?: string;
+  pickup_lat?: number;
+  pickup_lng?: number;
   dropoff_recipient_name?: string;
   dropoff_phone?: string;
   dropoff_address?: string;
+  dropoff_lat?: number;
+  dropoff_lng?: number;
   package_details?: {
     contents?: string;
     weight_kg?: number;
@@ -69,6 +79,55 @@ export function SendHistoryScreen() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'delivered' | 'cancelled'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [payingOrder, setPayingOrder] = useState<SendOrder | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 5;
+
+  // Reset to first page when filtering or searching
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter]);
+
+  const handleInitiatePayment = (order: SendOrder) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    setPayingOrder(order);
+  };
+
+  const handlePaymentSuccess = async (reference: string) => {
+    if (!payingOrder) return;
+    try {
+      if (user) {
+        await (supabase as any)
+          .from('send_orders')
+          .update({
+            status: 'finding_rider',
+            payment_status: 'paid',
+            payment_ref: reference,
+            paid_at: new Date().toISOString(),
+          })
+          .eq('id', payingOrder.id);
+      }
+
+      const updated = {
+        ...payingOrder,
+        status: 'finding_rider',
+        payment_status: 'paid',
+        payment_ref: reference,
+        paid_at: new Date().toISOString(),
+      };
+      await AsyncStorage.setItem(
+        `linkup_send_order_${payingOrder.id}`,
+        JSON.stringify(updated)
+      );
+
+      toast.success('Payment verified! Searching for your dispatch rider.');
+      fetchSendHistory();
+    } catch (err: any) {
+      toast.error(err?.message || 'Payment verification failed');
+    } finally {
+      setPayingOrder(null);
+    }
+  };
 
   const fetchSendHistory = useCallback(async () => {
     try {
@@ -155,8 +214,29 @@ export function SendHistoryScreen() {
   };
 
   // Status Badge Component
-  const renderStatusBadge = (status: string) => {
+  const renderStatusBadge = (status: string, paymentStatus?: string) => {
+    const isPaid = paymentStatus === 'paid';
     const s = (status || 'pending').toLowerCase();
+
+    if (s === 'pending_payment' || paymentStatus === 'pending') {
+      if (isPaid) {
+        return (
+          <View style={[styles.statusBadge, styles.statusFinding]}>
+            <Text style={[styles.statusText, styles.statusTextFinding]}>
+              Finding Rider 📡
+            </Text>
+          </View>
+        );
+      }
+      return (
+        <View style={[styles.statusBadge, styles.statusPending]}>
+          <Text style={[styles.statusText, styles.statusTextPending]}>
+            Pending Payment ⏳
+          </Text>
+        </View>
+      );
+    }
+
     switch (s) {
       case 'delivered':
         return (
@@ -204,7 +284,7 @@ export function SendHistoryScreen() {
         return (
           <View style={[styles.statusBadge, styles.statusPending]}>
             <Text style={[styles.statusText, styles.statusTextPending]}>
-              Pending Payment
+              Pending Payment ⏳
             </Text>
           </View>
         );
@@ -252,6 +332,18 @@ export function SendHistoryScreen() {
     return true;
   });
 
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / ITEMS_PER_PAGE));
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, filteredOrders.length);
+  const paginatedOrders = filteredOrders.slice(startIndex, endIndex);
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage < 1 || newPage > totalPages) return;
+    Haptics.selectionAsync().catch(() => {});
+    setCurrentPage(newPage);
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+  };
+
   const flatListRef = useRef<any>(null);
 
   return (
@@ -273,7 +365,7 @@ export function SendHistoryScreen() {
       >
         <FlatList
           ref={flatListRef}
-          data={filteredOrders}
+          data={paginatedOrders}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContainer}
           showsVerticalScrollIndicator={false}
@@ -497,7 +589,7 @@ export function SendHistoryScreen() {
                   <Clock size={12} color="#94a3b8" />
                   <Text style={styles.timeText}>{formattedDate}</Text>
                 </View>
-                {renderStatusBadge(item.status)}
+                {renderStatusBadge(item.status, item.payment_status)}
               </View>
 
               {/* Route Overview: Pickup & Dropoff */}
@@ -511,7 +603,7 @@ export function SendHistoryScreen() {
                     </Text>
                   </View>
                   <Text style={styles.addressText} numberOfLines={1}>
-                    {item.pickup_address || 'Pickup location specified'}
+                    {formatLocationAddress(item.pickup_address, item.pickup_lat, item.pickup_lng)}
                   </Text>
                 </View>
 
@@ -525,7 +617,7 @@ export function SendHistoryScreen() {
                     </Text>
                   </View>
                   <Text style={styles.addressText} numberOfLines={1}>
-                    {item.dropoff_address || 'Drop-off location specified'}
+                    {formatLocationAddress(item.dropoff_address, item.dropoff_lat, item.dropoff_lng)}
                   </Text>
                 </View>
               </View>
@@ -544,16 +636,29 @@ export function SendHistoryScreen() {
                   </Text>
                 </View>
 
-                <TouchableOpacity
-                  style={styles.trackingAction}
-                  onPress={() =>
-                    navigation.navigate('SendTracking', { orderId: item.id })
-                  }
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.trackingActionText}>Live Tracking</Text>
-                  <ArrowRight size={13} color={colors.primary} />
-                </TouchableOpacity>
+                <View style={styles.footerRight}>
+                  {(item.status === 'pending_payment' || item.payment_status === 'pending') && item.payment_status !== 'paid' && (
+                    <TouchableOpacity
+                      style={styles.payNowBtn}
+                      onPress={() => handleInitiatePayment(item)}
+                      activeOpacity={0.85}
+                    >
+                      <CreditCard size={12} color="#ffffff" strokeWidth={2.5} />
+                      <Text style={styles.payNowBtnText}>Pay Now</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  <TouchableOpacity
+                    style={styles.trackingAction}
+                    onPress={() =>
+                      navigation.navigate('SendTracking', { orderId: item.id })
+                    }
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.trackingActionText}>Live Tracking</Text>
+                    <ArrowRight size={13} color={colors.primary} />
+                  </TouchableOpacity>
+                </View>
               </View>
             </TouchableOpacity>
           );
@@ -591,8 +696,123 @@ export function SendHistoryScreen() {
             </View>
           )
         }
+        ListFooterComponent={
+          filteredOrders.length > 0 ? (
+            <View style={styles.paginationFooter}>
+              <Text style={styles.paginationInfoText}>
+                Showing {startIndex + 1}–{endIndex} of {filteredOrders.length} packages
+              </Text>
+
+              {totalPages > 1 && (
+                <View style={styles.paginationControls}>
+                  <TouchableOpacity
+                    style={[styles.pageNavBtn, currentPage === 1 && styles.pageNavBtnDisabled]}
+                    onPress={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    activeOpacity={0.7}
+                  >
+                    <ChevronLeft size={14} color={currentPage === 1 ? '#cbd5e1' : '#0f172a'} />
+                    <Text
+                      style={[
+                        styles.pageNavBtnText,
+                        currentPage === 1 && styles.pageNavBtnTextDisabled,
+                      ]}
+                    >
+                      Prev
+                    </Text>
+                  </TouchableOpacity>
+
+                  <View style={styles.pagePillsRow}>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                      if (
+                        totalPages > 5 &&
+                        page !== 1 &&
+                        page !== totalPages &&
+                        Math.abs(page - currentPage) > 1
+                      ) {
+                        if (page === 2 || page === totalPages - 1) {
+                          return (
+                            <Text key={page} style={styles.pageEllipsis}>
+                              ...
+                            </Text>
+                          );
+                        }
+                        return null;
+                      }
+
+                      const isActive = page === currentPage;
+                      return (
+                        <TouchableOpacity
+                          key={page}
+                          style={[
+                            styles.pageNumberBtn,
+                            isActive && styles.pageNumberBtnActive,
+                          ]}
+                          onPress={() => handlePageChange(page)}
+                          activeOpacity={0.7}
+                        >
+                          <Text
+                            style={[
+                              styles.pageNumberText,
+                              isActive && styles.pageNumberTextActive,
+                            ]}
+                          >
+                            {page}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.pageNavBtn,
+                      currentPage === totalPages && styles.pageNavBtnDisabled,
+                    ]}
+                    onPress={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.pageNavBtnText,
+                        currentPage === totalPages && styles.pageNavBtnTextDisabled,
+                      ]}
+                    >
+                      Next
+                    </Text>
+                    <ChevronRight
+                      size={14}
+                      color={currentPage === totalPages ? '#cbd5e1' : '#0f172a'}
+                    />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          ) : null
+        }
       />
       </KeyboardAvoidingView>
+
+      {/* Paystack Payment Modal for Re-initiating Pending Orders */}
+      <PaystackWebViewModal
+        visible={!!payingOrder}
+        email={
+          user?.email ||
+          (payingOrder?.sender_phone
+            ? `${payingOrder.sender_phone.replace(/\D/g, '')}@linkup.delivery`
+            : 'customer@linkup.delivery')
+        }
+        amount={payingOrder?.delivery_fee || payingOrder?.total_amount || 0}
+        reference={`PAYSTACK_${payingOrder?.id}_${Date.now()}`}
+        metadata={{
+          order_id: payingOrder?.id,
+          order_type: 'send_order',
+          user_id: user?.id,
+        }}
+        onSuccess={handlePaymentSuccess}
+        onCancel={() => setPayingOrder(null)}
+      />
     </SafeView>
   );
 }
@@ -966,6 +1186,31 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#0f172a',
   },
+  footerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  payNowBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#16a34a',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    shadowColor: '#16a34a',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  payNowBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
   trackingAction: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1026,5 +1271,76 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#64748b',
     marginTop: 8,
+  },
+  paginationFooter: {
+    paddingTop: 16,
+    paddingBottom: 24,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+    marginTop: 8,
+    gap: 12,
+    alignItems: 'center',
+  },
+  paginationInfoText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  paginationControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pageNavBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  pageNavBtnDisabled: {
+    opacity: 0.45,
+    borderColor: '#f1f5f9',
+  },
+  pageNavBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  pageNavBtnTextDisabled: {
+    color: '#94a3b8',
+  },
+  pagePillsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  pageEllipsis: {
+    fontSize: 12,
+    color: '#94a3b8',
+    paddingHorizontal: 2,
+  },
+  pageNumberBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pageNumberBtnActive: {
+    backgroundColor: colors.primary,
+  },
+  pageNumberText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  pageNumberTextActive: {
+    color: '#ffffff',
   },
 });

@@ -22,6 +22,7 @@ import {
   Headphones,
   AlertCircle,
   Sparkles,
+  Megaphone,
 } from 'lucide-react-native';
 import { colors } from '../../../../theme/colors';
 import { supabase } from '../../../../services/supabase';
@@ -47,6 +48,7 @@ export function AdminAnalyticsTab() {
     platform_total: 0,
     seller_total: 0,
     rider_total: 0,
+    promoter_total: 0,
     total_received: 0,
   });
 
@@ -71,6 +73,7 @@ export function AdminAnalyticsTab() {
           platform_total: Number(parsed?.platform_total || parsed?.json_build_object?.platform_total || 0),
           seller_total: Number(parsed?.seller_total || parsed?.json_build_object?.seller_total || 0),
           rider_total: Number(parsed?.rider_total || parsed?.json_build_object?.rider_total || 0),
+          promoter_total: Number(parsed?.promoter_total || parsed?.json_build_object?.promoter_total || 0),
           total_received: Number(parsed?.total_received || parsed?.json_build_object?.total_received || 0),
         });
       }
@@ -163,7 +166,12 @@ export function AdminAnalyticsTab() {
     }
   };
 
-  const formatNaira = (val: number) => '₦' + (val || 0).toLocaleString('en-NG');
+  const formatNaira = (val: number) =>
+    '₦' +
+    Number(val || 0).toLocaleString('en-NG', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
 
   const filteredMetrics = useMemo(() => {
     const now = new Date();
@@ -519,6 +527,17 @@ export function AdminAnalyticsTab() {
                     <Text style={styles.ledgerSub}>Delivery fee payables</Text>
                   </View>
                   <Text style={styles.ledgerAmount}>{formatNaira(revenue.rider_total)}</Text>
+                </View>
+
+                <View style={styles.ledgerRow}>
+                  <View style={[styles.ledgerIcon, { backgroundColor: '#F5F3FF' }]}>
+                    <Megaphone size={16} color="#7C3AED" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.ledgerName}>Promoter Commissions</Text>
+                    <Text style={styles.ledgerSub}>Affiliate referral cuts & marketing payables</Text>
+                  </View>
+                  <Text style={styles.ledgerAmount}>{formatNaira(revenue.promoter_total)}</Text>
                 </View>
               </View>
             </>

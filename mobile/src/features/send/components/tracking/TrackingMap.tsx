@@ -20,8 +20,8 @@ export function TrackingMap({
   const mapRef = useRef<MapViewRef | null>(null);
 
   const defaultCenter = {
-    latitude: riderCoords?.lat || pickupCoords?.lat || 9.0765,
-    longitude: riderCoords?.lng || pickupCoords?.lng || 7.3986,
+    latitude: riderCoords?.lat || pickupCoords?.lat || dropoffCoords?.lat || 9.0765,
+    longitude: riderCoords?.lng || pickupCoords?.lng || dropoffCoords?.lng || 7.3986,
     latitudeDelta: 0.05,
     longitudeDelta: 0.05,
   };
@@ -111,6 +111,7 @@ export function TrackingMap({
 const styles = StyleSheet.create({
   container: {
     height: 240,
+    width: '100%',
     borderRadius: 22,
     overflow: 'hidden',
     backgroundColor: '#e2e8f0',
@@ -120,7 +121,8 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
   },
   map: {
-    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
   riderMarkerWrap: {
     alignItems: 'center',

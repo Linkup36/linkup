@@ -122,6 +122,7 @@ export function RoutePreviewMap({
 const styles = StyleSheet.create({
   container: {
     height: 180,
+    width: '100%',
     borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: '#e2e8f0',
@@ -131,7 +132,8 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
   },
   map: {
-    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
   statsPill: {
     position: 'absolute',

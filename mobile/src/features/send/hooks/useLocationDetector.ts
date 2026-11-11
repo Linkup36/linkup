@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import * as Location from 'expo-location';
 import { toast } from '../../../components/ui/GooeyToast';
+import { inferNigerianCityFromCoords } from '../utils/addressFormatter';
 
 export interface DetectedLocation {
   address: string;
@@ -75,7 +76,8 @@ export function useLocationDetector() {
           const parts = [item.name, item.street, item.district, item.city, item.region].filter(
             Boolean
           );
-          const address = parts.length > 0 ? parts.join(', ') : `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+          const cityFallback = inferNigerianCityFromCoords(latitude, longitude);
+          const address = parts.length > 0 ? parts.join(', ') : `${cityFallback} (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
 
           toast.success('Location detected successfully');
           setIsDetecting(false);
@@ -83,19 +85,21 @@ export function useLocationDetector() {
             address,
             latitude,
             longitude,
-            city: item.city || item.region || undefined,
+            city: item.city || item.region || cityFallback,
           };
         }
       } catch (nativeErr) {
         console.warn('Native reverseGeocode error:', nativeErr);
       }
 
-      toast.success('GPS coordinates retrieved');
+      const inferredCity = inferNigerianCityFromCoords(latitude, longitude);
+      toast.success('Location detected successfully');
       setIsDetecting(false);
       return {
-        address: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+        address: `${inferredCity} (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`,
         latitude,
         longitude,
+        city: inferredCity,
       };
     } catch (err: any) {
       console.error('Location detection error:', err);

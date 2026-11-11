@@ -92,8 +92,8 @@ export function NotificationsScreen() {
     setupNotificationChannelsAsync().catch(() => {});
 
     // Attempt fetching push token for physical device inspector
-    getDevicePushTokenDirectAsync().then((tok) => {
-      if (tok) setPushToken(tok);
+    getDevicePushTokenDirectAsync(user?.id).then((tok) => {
+      setPushToken(tok || 'No token generated');
     });
 
     return () => {
@@ -106,8 +106,8 @@ export function NotificationsScreen() {
   const onRefresh = () => {
     setRefreshing(true);
     fetchNotifications();
-    getDevicePushTokenDirectAsync().then((tok) => {
-      if (tok) setPushToken(tok);
+    getDevicePushTokenDirectAsync(user?.id).then((tok) => {
+      setPushToken(tok || 'No token generated');
     });
   };
 
@@ -187,21 +187,44 @@ export function NotificationsScreen() {
     }
   };
 
-  // 3. Remote Cloud Push Test: Uses Expo push servers
+  // 3. Remote Cloud Push Test: Uses Expo push servers or Realtime pipeline
   const handleTestRemoteExpoPush = async () => {
-    if (!pushToken) {
-      const tok = await getDevicePushTokenDirectAsync();
-      if (!tok) {
-        Alert.alert(
-          'Push Token Needed',
-          'Could not retrieve ExponentPushToken. Make sure the app is running on a physical Android device connected to Expo.'
-        );
+    let tokenToSend = pushToken;
+    if (!tokenToSend || !tokenToSend.startsWith('ExponentPushToken[')) {
+      setLastTestStatus('Checking device push token...');
+      const tok = await getDevicePushTokenDirectAsync(user?.id);
+      if (tok && tok.startsWith('ExponentPushToken[')) {
+        tokenToSend = tok;
+        setPushToken(tok);
+      } else {
+        // Fallback: Dispatch server-side notification into Supabase notifications table
+        setIsSendingRemote(true);
+        setLastTestStatus('Dispatching live database alert to test real-time banner...');
+        try {
+          if (user?.id) {
+            await supabase.from('notifications').insert({
+              user_id: user.id,
+              title: '🚀 LinkUp Remote Alert',
+              message: 'Database real-time notification fired! Banner and sound triggered.',
+              type: 'system',
+              is_read: false,
+            });
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+            setLastTestStatus('Fired via Supabase Real-Time! Watch top banner.');
+            setTimeout(() => fetchNotifications(), 600);
+          } else {
+            setLastTestStatus(tok || 'Could not retrieve push token.');
+          }
+        } catch (dbErr: any) {
+          Alert.alert('Notice', dbErr?.message || 'Failed to dispatch test notification.');
+          setLastTestStatus('Dispatch failed.');
+        } finally {
+          setIsSendingRemote(false);
+        }
         return;
       }
-      setPushToken(tok);
     }
 
-    const tokenToSend = pushToken;
     if (!tokenToSend) return;
 
     setIsSendingRemote(true);
@@ -220,7 +243,7 @@ export function NotificationsScreen() {
         setTimeout(() => fetchNotifications(), 1000);
       } else {
         Alert.alert('Remote Push Notice', res.error || 'Failed to dispatch remote push.');
-        setLastTestStatus('Expo Cloud push failed.');
+        setLastTestStatus(res.error || 'Expo Cloud push failed.');
       }
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Remote push encountered an issue.');

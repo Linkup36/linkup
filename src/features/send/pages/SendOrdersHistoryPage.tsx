@@ -26,9 +26,12 @@ import {
   RefreshCw,
   SlidersHorizontal,
   Wallet,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { formatLocationAddress } from '../utils/addressFormatter';
 
 export default function SendOrdersHistoryPage() {
   const { user } = useAuth();
@@ -38,6 +41,13 @@ export default function SendOrdersHistoryPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'delivered' | 'cancelled'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 5;
+
+  // Reset to page 1 whenever search or filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter]);
 
   const { data: orders = [], isLoading, refetch } = useQuery<SendOrder[]>({
     queryKey: ['my_send_orders', user?.id],
@@ -66,7 +76,7 @@ export default function SendOrdersHistoryPage() {
             if (item?.id && !remoteOrders.some((ro) => ro.id === item.id)) {
               localOrders.push(item);
             }
-          } catch {}
+          } catch { }
         }
       }
 
@@ -104,7 +114,23 @@ export default function SendOrdersHistoryPage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string, paymentStatus?: string) => {
+    const isPaid = paymentStatus === 'paid';
+    if (status === 'pending_payment' || paymentStatus === 'pending') {
+      if (isPaid) {
+        return (
+          <Badge className="bg-orange-50 text-[#E96F28] border-orange-200 text-[10px] font-bold animate-pulse">
+            Finding Rider 📡
+          </Badge>
+        );
+      }
+      return (
+        <Badge className="bg-amber-50 text-amber-800 border-amber-300 text-[10px] font-bold">
+          Pending Payment ⏳
+        </Badge>
+      );
+    }
+
     switch (status) {
       case 'delivered':
         return (
@@ -175,6 +201,17 @@ export default function SendOrdersHistoryPage() {
 
     return true;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / ITEMS_PER_PAGE));
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, filteredOrders.length);
+  const paginatedOrders = filteredOrders.slice(startIndex, endIndex);
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage < 1 || newPage > totalPages) return;
+    setCurrentPage(newPage);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const activeCount = orders.filter((o) => !['delivered', 'cancelled'].includes(o.status)).length;
   const deliveredCount = orders.filter((o) => o.status === 'delivered').length;
@@ -315,7 +352,7 @@ export default function SendOrdersHistoryPage() {
           </Card>
         ) : (
           <div className="space-y-3.5">
-            {filteredOrders.map((order) => (
+            {paginatedOrders.map((order) => (
               <Card
                 key={order.id}
                 onClick={() => navigate(`/send/track/${order.id}`)}
@@ -352,7 +389,7 @@ export default function SendOrdersHistoryPage() {
                           minute: '2-digit',
                         })}
                       </span>
-                      {getStatusBadge(order.status)}
+                      {getStatusBadge(order.status, order.payment_status)}
                     </div>
                   </div>
 
@@ -364,7 +401,7 @@ export default function SendOrdersHistoryPage() {
                         <span>Pickup (Sender: {order.sender_name})</span>
                       </div>
                       <p className="text-foreground font-semibold line-clamp-1">
-                        {order.pickup_address}
+                        {formatLocationAddress(order.pickup_address, order.pickup_lat, order.pickup_lng)}
                       </p>
                     </div>
 
@@ -374,7 +411,7 @@ export default function SendOrdersHistoryPage() {
                         <span>Drop-off (To: {order.dropoff_recipient_name})</span>
                       </div>
                       <p className="text-foreground font-semibold line-clamp-1">
-                        {order.dropoff_address}
+                        {formatLocationAddress(order.dropoff_address, order.dropoff_lat, order.dropoff_lng)}
                       </p>
                     </div>
                   </div>
@@ -423,6 +460,80 @@ export default function SendOrdersHistoryPage() {
                 </CardContent>
               </Card>
             ))}
+
+            {/* Pagination Controls */}
+            {filteredOrders.length > 0 && (
+              <div className="pt-3 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-border/50 text-xs text-muted-foreground">
+                <div className="font-medium">
+                  Showing <span className="font-bold text-foreground">{startIndex + 1}</span>–
+                  <span className="font-bold text-foreground">{endIndex}</span> of{' '}
+                  <span className="font-bold text-foreground">{filteredOrders.length}</span> packages
+                </div>
+
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePageChange(currentPage - 1)}
+                      disabled={currentPage === 1}
+                      className="h-8 px-2.5 rounded-xl text-xs font-bold gap-1 disabled:opacity-40"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Prev</span>
+                    </Button>
+
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                        if (
+                          totalPages > 7 &&
+                          page !== 1 &&
+                          page !== totalPages &&
+                          Math.abs(page - currentPage) > 1
+                        ) {
+                          if (page === 2 || page === totalPages - 1) {
+                            return (
+                              <span key={page} className="px-1 text-muted-foreground select-none">
+                                ...
+                              </span>
+                            );
+                          }
+                          return null;
+                        }
+
+                        const isActive = page === currentPage;
+                        return (
+                          <button
+                            key={page}
+                            type="button"
+                            onClick={() => handlePageChange(page)}
+                            className={cn(
+                              'w-8 h-8 rounded-xl text-xs font-bold transition-all flex items-center justify-center cursor-pointer',
+                              isActive
+                                ? 'bg-primary text-white shadow-sm'
+                                : 'bg-muted/50 text-foreground hover:bg-muted'
+                            )}
+                          >
+                            {page}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePageChange(currentPage + 1)}
+                      disabled={currentPage === totalPages}
+                      className="h-8 px-2.5 rounded-xl text-xs font-bold gap-1 disabled:opacity-40"
+                    >
+                      <span>Next</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -21,7 +21,12 @@ import {
   Info,
   Clock,
   ArrowRight,
+  CreditCard,
 } from 'lucide-react-native';
+import { supabase } from '../../../../services/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth } from '../../../../context/AuthContext';
+import { PaystackWebViewModal } from '../../../../components/ui/PaystackWebViewModal';
 import { SendOrder } from '../../types';
 import { TrackingMap } from './TrackingMap';
 import { RiderContactCard } from './RiderContactCard';
@@ -33,6 +38,7 @@ import * as Haptics from 'expo-haptics';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../../../navigation/types';
+import { formatLocationAddress } from '../../utils/addressFormatter';
 
 interface RealtimeTrackingViewProps {
   order: SendOrder;
@@ -46,9 +52,47 @@ export function RealtimeTrackingView({
   onRefresh,
 }: RealtimeTrackingViewProps) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { user } = useAuth();
   const [copied, setCopied] = useState(false);
   const [supportModalOpen, setSupportModalOpen] = useState(false);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [payModalOpen, setPayModalOpen] = useState(false);
+
+  const handlePaymentSuccess = async (reference: string) => {
+    try {
+      const { error } = await (supabase as any)
+        .from('send_orders')
+        .update({
+          status: 'finding_rider',
+          payment_status: 'paid',
+          payment_ref: reference,
+          paid_at: new Date().toISOString(),
+        })
+        .eq('id', order.id);
+
+      if (error) {
+        console.warn('[RealtimeTrackingView] Remote update failed, saving locally:', error);
+      }
+
+      const updated = {
+        ...order,
+        status: 'finding_rider',
+        payment_status: 'paid',
+        payment_ref: reference,
+        paid_at: new Date().toISOString(),
+      };
+      await AsyncStorage.setItem(
+        `linkup_send_order_${order.id}`,
+        JSON.stringify(updated)
+      );
+
+      toast.success('Payment verified! Searching for your dispatch rider.');
+      setPayModalOpen(false);
+      onRefresh?.();
+    } catch (err: any) {
+      toast.error(err?.message || 'Payment verification failed');
+    }
+  };
 
   const handleCopyId = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -58,10 +102,19 @@ export function RealtimeTrackingView({
   };
 
   const isCancelled = order.status === 'cancelled';
-  const isFindingRider = order.status === 'finding_rider' || order.status === 'pending_payment';
+  const isPaid = order.payment_status === 'paid';
+  const isPendingPayment = !isPaid && (order.status === 'pending_payment' || order.payment_status === 'pending');
+  const isFindingRider = isPaid && (order.status === 'finding_rider' || order.status === 'pending_payment');
   const isRiderAssigned =
     order.status === 'assigned_rider' || order.status === 'pickup' || order.status === 'on_the_way';
   const isDelivered = order.status === 'delivered';
+
+  const isInterstate =
+    (order.package_details?.distance_km && order.package_details.distance_km > 55) ||
+    (order.delivery_fee && Number(order.delivery_fee) >= 15000);
+
+  const formattedPickup = formatLocationAddress(order.pickup_address, order.pickup_lat, order.pickup_lng);
+  const formattedDropoff = formatLocationAddress(order.dropoff_address, order.dropoff_lat, order.dropoff_lng);
 
   const pickupCoords =
     order.pickup_lat && order.pickup_lng
@@ -85,18 +138,23 @@ export function RealtimeTrackingView({
 
   const trackingSteps = [
     {
-      label: 'Finding rider',
-      state: isFindingRider ? 'In Progress' : 'Completed',
+      label: 'Payment',
+      state: isPaid ? 'Completed' : 'In Progress',
+      icon: ShieldCheck,
+    },
+    {
+      label: isInterstate ? 'Transit Carrier' : 'Finding rider',
+      state: isPendingPayment ? 'Pending' : isFindingRider ? 'In Progress' : 'Completed',
       icon: Search,
     },
     {
-      label: 'Rider Assigned',
-      state: isFindingRider
+      label: isInterstate ? 'Assigned' : 'Rider Assigned',
+      state: isPendingPayment || isFindingRider
         ? 'Pending'
         : order.status === 'assigned_rider'
         ? 'In Progress'
         : 'Completed',
-      icon: Bike,
+      icon: isInterstate ? Truck : Bike,
     },
     {
       label: 'Pick up',
@@ -147,10 +205,17 @@ export function RealtimeTrackingView({
               <Text style={[styles.statusBadgeText, { color: '#dc2626' }]}>Cancelled</Text>
               <Text style={styles.statusSubText}>Order Closed</Text>
             </View>
+          ) : isPendingPayment ? (
+            <View style={[styles.statusBox, { backgroundColor: '#fef3c7', borderColor: '#fde68a' }]}>
+              <Text style={[styles.statusBadgeText, { color: '#b45309' }]}>Pending Payment ⏳</Text>
+              <Text style={[styles.statusSubText, { color: '#b45309' }]}>Payment Required</Text>
+            </View>
           ) : isFindingRider ? (
             <View style={[styles.statusBox, styles.statusBoxFinding]}>
-              <Text style={[styles.statusBadgeText, { color: '#16a34a' }]}>Finding a rider</Text>
-              <Text style={styles.statusSubText}>15 – 45 mins</Text>
+              <Text style={[styles.statusBadgeText, { color: '#16a34a' }]}>
+                {isInterstate ? 'Assigning Transit' : 'Finding a rider'}
+              </Text>
+              <Text style={styles.statusSubText}>{isInterstate ? '1 – 2 Days' : '15 – 45 mins'}</Text>
             </View>
           ) : (
             <View style={[styles.statusBox, styles.statusBoxActive]}>
@@ -249,8 +314,8 @@ export function RealtimeTrackingView({
             </TouchableOpacity>
           </View>
         </View>
-      ) : isFindingRider ? (
-        /* ============ FINDING RIDER VIEW ============ */
+      ) : (isFindingRider || isPendingPayment) ? (
+        /* ============ FINDING RIDER & PENDING PAYMENT VIEW ============ */
         <View style={styles.sectionWrap}>
           {/* Radar Searching Card */}
           <View style={styles.radarCard}>
@@ -263,18 +328,53 @@ export function RealtimeTrackingView({
             </View>
 
             <View style={{ flex: 1 }}>
-              <Text style={styles.radarTitle}>We're finding the best rider for you</Text>
+              <Text style={styles.radarTitle}>
+                {isPendingPayment
+                  ? 'Payment required to assign rider'
+                  : isInterstate
+                  ? 'Searching for verified transit carrier'
+                  : "We're finding the best rider for you"}
+              </Text>
               <Text style={styles.radarSub}>
-                Please sit tight while we connect you with an available rider near you.
+                {isPendingPayment
+                  ? 'Your delivery order is ready. Please complete payment to broadcast to nearby dispatch riders.'
+                  : isInterstate
+                  ? 'Connecting your parcel with an inter-state logistics carrier for long-distance transport.'
+                  : 'Please sit tight while we connect you with an available rider near you.'}
               </Text>
             </View>
           </View>
+
+          {/* Pending Payment Action Banner */}
+          {isPendingPayment && (
+            <TouchableOpacity
+              style={styles.payNowHeroBtn}
+              onPress={() => setPayModalOpen(true)}
+              activeOpacity={0.88}
+            >
+              <View style={styles.payNowHeroIconWrap}>
+                <CreditCard size={20} color="#ffffff" strokeWidth={2.5} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.payNowHeroTitle}>Complete Payment Now</Text>
+                <Text style={styles.payNowHeroSub}>
+                  Pay ₦{Math.round(order.delivery_fee || (order as any).total_amount || 0).toLocaleString('en-NG')} via Paystack to activate dispatch
+                </Text>
+              </View>
+              <View style={styles.payNowHeroActionPill}>
+                <Text style={styles.payNowHeroActionText}>Pay Now</Text>
+                <ArrowRight size={13} color="#ffffff" strokeWidth={2.5} />
+              </View>
+            </TouchableOpacity>
+          )}
 
           {/* Info pill */}
           <View style={styles.infoPill}>
             <Info size={14} color="#ea580c" />
             <Text style={styles.infoPillText}>
-              You will be notified as soon as a verified dispatch rider accepts.
+              {isPendingPayment
+                ? 'Dispatchers are notified immediately upon payment confirmation.'
+                : 'You will be notified as soon as a verified dispatch rider accepts.'}
             </Text>
           </View>
 
@@ -287,7 +387,7 @@ export function RealtimeTrackingView({
               <View style={[styles.dotCircle, { borderColor: '#16a34a' }]} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.locationTitle}>Pickup Location</Text>
-                <Text style={styles.locationAddress}>{order.pickup_address}</Text>
+                <Text style={styles.locationAddress}>{formattedPickup}</Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
                 <Text style={styles.personName}>{order.sender_name}</Text>
@@ -302,7 +402,7 @@ export function RealtimeTrackingView({
               <View style={[styles.dotCircle, { borderColor: '#2563eb' }]} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.locationTitle}>Drop-off Location</Text>
-                <Text style={styles.locationAddress}>{order.dropoff_address}</Text>
+                <Text style={styles.locationAddress}>{formattedDropoff}</Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
                 <Text style={styles.personName}>{order.dropoff_recipient_name}</Text>
@@ -321,6 +421,7 @@ export function RealtimeTrackingView({
                   {order.package_details?.weight_kg <= 2
                     ? 'Small • Under 2kg'
                     : `${order.package_details?.weight_kg}kg`}
+                  {isInterstate && ' • Inter-State Delivery'}
                 </Text>
                 <Text style={styles.packageContents}>
                   {order.package_details?.contents || 'Parcels / Items'}
@@ -333,7 +434,7 @@ export function RealtimeTrackingView({
           <View style={styles.card}>
             <Text style={styles.cardHeading}>PAYMENT SUMMARY</Text>
             <View style={styles.summaryLine}>
-              <Text style={styles.summaryLabel}>Total Paid</Text>
+              <Text style={styles.summaryLabel}>{isPaid ? 'Total Paid' : 'Amount Due'}</Text>
               <Text style={styles.summaryVal}>
                 ₦{Number(order.delivery_fee || 0).toLocaleString()}
               </Text>
@@ -346,8 +447,20 @@ export function RealtimeTrackingView({
             </View>
             <View style={styles.summaryLine}>
               <Text style={styles.summaryLabel}>Payment Status</Text>
-              <View style={styles.paidBadge}>
-                <Text style={styles.paidBadgeText}>PAID</Text>
+              <View
+                style={[
+                  styles.paidBadge,
+                  !isPaid && { backgroundColor: '#fef3c7', borderColor: '#fde68a' },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.paidBadgeText,
+                    !isPaid && { color: '#b45309' },
+                  ]}
+                >
+                  {isPaid ? 'PAID' : 'PENDING PAYMENT'}
+                </Text>
               </View>
             </View>
           </View>
@@ -360,8 +473,19 @@ export function RealtimeTrackingView({
             </Text>
           </View>
 
-          {/* Action Buttons: Contact Support & Cancel */}
+          {/* Action Buttons: Pay Now, Contact Support & Cancel */}
           <View style={styles.buttonGrid}>
+            {isPendingPayment && (
+              <TouchableOpacity
+                style={styles.payNowPillBtn}
+                onPress={() => setPayModalOpen(true)}
+                activeOpacity={0.85}
+              >
+                <CreditCard size={15} color="#ffffff" strokeWidth={2.5} />
+                <Text style={styles.payNowPillText}>Pay Now</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={styles.supportPillBtn}
               onPress={() => setSupportModalOpen(true)}
@@ -416,7 +540,7 @@ export function RealtimeTrackingView({
               <View style={[styles.dotCircle, { borderColor: '#16a34a' }]} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.locationTitle}>Pickup</Text>
-                <Text style={styles.locationAddress}>{order.pickup_address}</Text>
+                <Text style={styles.locationAddress}>{formattedPickup}</Text>
               </View>
             </View>
 
@@ -426,7 +550,7 @@ export function RealtimeTrackingView({
               <View style={[styles.dotCircle, { borderColor: '#2563eb' }]} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.locationTitle}>Drop-off</Text>
-                <Text style={styles.locationAddress}>{order.dropoff_address}</Text>
+                <Text style={styles.locationAddress}>{formattedDropoff}</Text>
               </View>
             </View>
           </View>
@@ -466,6 +590,26 @@ export function RealtimeTrackingView({
         order={order}
         onSuccess={onRefresh}
         onOpenSupport={() => setSupportModalOpen(true)}
+      />
+
+      {/* Paystack Payment Modal */}
+      <PaystackWebViewModal
+        visible={payModalOpen}
+        email={
+          user?.email ||
+          (order.sender_phone
+            ? `${order.sender_phone.replace(/\D/g, '')}@linkup.delivery`
+            : 'customer@linkup.delivery')
+        }
+        amount={order.delivery_fee || (order as any).total_amount || 0}
+        reference={`PAYSTACK_${order.id}_${Date.now()}`}
+        metadata={{
+          order_id: order.id,
+          order_type: 'send_order',
+          user_id: user?.id,
+        }}
+        onSuccess={handlePaymentSuccess}
+        onCancel={() => setPayModalOpen(false)}
       />
     </ScrollView>
   );
@@ -782,9 +926,76 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     flex: 1,
   },
+  payNowHeroBtn: {
+    backgroundColor: '#16a34a',
+    borderRadius: 18,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    shadowColor: '#16a34a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  payNowHeroIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  payNowHeroTitle: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: -0.2,
+  },
+  payNowHeroSub: {
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  payNowHeroActionPill: {
+    backgroundColor: 'rgba(0, 0, 0, 0.18)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  payNowHeroActionText: {
+    color: '#ffffff',
+    fontSize: 11.5,
+    fontWeight: '800',
+  },
   buttonGrid: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
+  },
+  payNowPillBtn: {
+    flex: 1.2,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#16a34a',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    shadowColor: '#16a34a',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  payNowPillText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '900',
   },
   supportPillBtn: {
     flex: 1,
