@@ -118,6 +118,9 @@ declare module 'lucide-react-native' {
   export const Tag: any;
   export const RotateCcw: any;
   export const RefreshCw: any;
+  export const Wifi: any;
+  export const WifiOff: any;
+  export const Printer: any;
   export const Copy: any;
   export const DollarSign: any;
   export const Send: any;

@@ -280,7 +280,7 @@ export async function triggerLocalTestNotificationAsync(
         title,
         message: body,
         type: 'system',
-        is_read: false,
+        read: false,
       })
       .then(() => {});
   }
@@ -393,7 +393,7 @@ export async function sendLocalOrderUpdateNotification(
         message: body,
         type: 'order_status',
         data: orderId ? { order_id: orderId } : {},
-        is_read: false,
+        read: false,
       });
     } catch (e) {
       // Ignored

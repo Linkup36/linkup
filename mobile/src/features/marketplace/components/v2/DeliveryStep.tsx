@@ -137,10 +137,17 @@ export function DeliveryStep({
     cities.find((c: any) => c.id === shipping.city_id)?.name ||
     'Abuja';
 
+  const formatZoneDisplayName = (rawName?: string) => {
+    if (!rawName) return '';
+    const trimmed = rawName.trim();
+    const match = trimmed.match(/^Zone\s*\d+\s*\((.+)\)$/i);
+    return match ? match[1].trim() : trimmed;
+  };
+
   const activeZoneName =
-    shipping.zone_name ||
-    zones.find((z: any) => z.id === shipping.zone_id)?.name ||
-    'Select Zone';
+    formatZoneDisplayName(
+      shipping.zone_name || zones.find((z: any) => z.id === shipping.zone_id)?.name
+    ) || 'Select Zone';
 
   return (
     <KeyboardAvoidingView
@@ -530,13 +537,8 @@ export function DeliveryStep({
                           isSelected && styles.modalOptionTextSelected,
                         ]}
                       >
-                        {item.name}
+                        {formatZoneDisplayName(item.name)}
                       </Text>
-                      {item.delivery_fee ? (
-                        <Text style={styles.modalOptionSub}>
-                          Delivery: ₦{Number(item.delivery_fee).toLocaleString()}
-                        </Text>
-                      ) : null}
                     </View>
                     {isSelected && <Check size={18} color={colors.primary} strokeWidth={2.5} />}
                   </TouchableOpacity>

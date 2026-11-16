@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Platform,
   Dimensions,
+  Image,
 } from 'react-native';
 import {
   LayoutDashboard,
@@ -382,8 +383,12 @@ export function LogisticsDashboardV2Screen() {
           </TouchableOpacity>
 
           <View style={styles.brandContainer}>
-            <View style={styles.logoPill}>
-              <Text style={styles.logoPillText}>L</Text>
+            <View style={[styles.logoPill, { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', padding: 5 }]}>
+              <Image
+                source={require('../../../../assets/logo.png')}
+                style={{ width: '100%', height: '100%' }}
+                resizeMode="contain"
+              />
             </View>
             <View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>

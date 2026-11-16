@@ -4,9 +4,9 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
   Share,
-  Alert,
+  Image,
+  Platform,
 } from 'react-native';
 import {
   Landmark,
@@ -18,10 +18,13 @@ import {
   ShieldCheck,
   Share2,
   FileText,
+  Printer,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { AppModal } from '../../../components/ui/AppModal';
 import { colors } from '../../../theme/colors';
+
+const linkupLogo = require('../../../../assets/logo.png');
 
 interface PayoutReceiptModalProps {
   visible: boolean;
@@ -113,6 +116,79 @@ export function PayoutReceiptModal({
     }
   };
 
+  const handlePrint = async () => {
+    Haptics.selectionAsync().catch(() => {});
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const printWin = window.open('', '_blank', 'width=520,height=780');
+      if (printWin) {
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>LinkUp Withdrawal Receipt #${request.id.slice(0, 8).toUpperCase()}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 24px; color: #0f172a; background: #fff; }
+    .receipt { max-width: 440px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 20px; overflow: hidden; position: relative; }
+    .watermark { position: absolute; top: 52%; left: 50%; transform: translate(-50%, -50%) scale(1.4); opacity: 0.05; pointer-events: none; filter: grayscale(100%); width: 220px; }
+    .header { background: #E96E28; color: #fff; padding: 24px; }
+    .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .brand-logo { width: 34px; height: 34px; background: #fff; border-radius: 8px; padding: 4px; object-fit: contain; }
+    .brand-title { font-weight: 900; font-size: 13px; line-height: 1.1; }
+    .brand-sub { font-size: 9px; opacity: 0.8; letter-spacing: 0.12em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: 22px; font-weight: 900; }
+    .ref { font-size: 11px; opacity: 0.85; margin-top: 4px; letter-spacing: 0.08em; }
+    .body { padding: 24px; position: relative; z-index: 1; }
+    .status { display: inline-block; padding: 6px 12px; border-radius: 999px; font-size: 11px; font-weight: 800; background: ${currentStatus.bg}; color: ${currentStatus.color}; border: 1px solid ${currentStatus.border}; margin-bottom: 16px; }
+    .amount-label { font-size: 10px; font-weight: 800; color: #64748b; letter-spacing: 0.1em; text-transform: uppercase; }
+    .amount { font-size: 32px; font-weight: 900; margin: 4px 0; }
+    .fee { font-size: 11px; color: #64748b; margin-bottom: 18px; }
+    .row { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+    .row:last-child { border-bottom: none; }
+    .label { color: #64748b; }
+    .val { font-weight: 700; text-align: right; }
+    .footer { margin-top: 16px; font-size: 11px; color: #16a34a; font-weight: 700; text-align: center; }
+    @media print { body { padding: 0; } .receipt { border: none; } }
+  </style>
+</head>
+<body>
+  <div class="receipt">
+    <img class="watermark" src="https://www.linkupng.com/assets/logo-jbH7uo1t.png" alt="LinkUp Watermark" />
+    <div class="header">
+      <div class="brand">
+        <img class="brand-logo" src="https://www.linkupng.com/assets/logo-jbH7uo1t.png" alt="LinkUp" />
+        <div>
+          <div class="brand-title">Linkup</div>
+          <div class="brand-sub">Financial Hub</div>
+        </div>
+      </div>
+      <h1>Withdrawal Receipt</h1>
+      <div class="ref">ID: #${request.id.slice(0, 13).toUpperCase()}</div>
+    </div>
+    <div class="body">
+      <div class="status">${currentStatus.label}</div>
+      <div class="amount-label">Net Payout (To Bank)</div>
+      <div class="amount">₦${amount.toLocaleString()}</div>
+      <div class="fee">Total Wallet Deduction: ₦${totalDeduction.toLocaleString()} (incl. ₦${fee.toLocaleString()} fee)</div>
+      <div class="row"><span class="label">Bank Name</span><span class="val">${request.bank_name || 'N/A'}</span></div>
+      <div class="row"><span class="label">Account Number</span><span class="val">${request.account_number || 'N/A'}</span></div>
+      <div class="row"><span class="label">Account Holder</span><span class="val">${request.account_name || 'Account Holder'}</span></div>
+      <div class="row"><span class="label">Date Requested</span><span class="val">${formattedDate}</span></div>
+      ${request.admin_notes ? `<div class="row"><span class="label">Admin Note</span><span class="val">${request.admin_notes}</span></div>` : ''}
+      <div class="footer">Protected by LinkUp Escrow & Settlement Guarantee</div>
+    </div>
+  </div>
+  <script>window.onload = function() { window.print(); };</script>
+</body>
+</html>`;
+        printWin.document.open();
+        printWin.document.write(html);
+        printWin.document.close();
+        return;
+      }
+    }
+    await handleShare();
+  };
+
   const formattedDate = request.created_at
     ? new Date(request.created_at).toLocaleDateString('en-GB', {
         day: 'numeric',
@@ -130,10 +206,23 @@ export function PayoutReceiptModal({
       title="Withdrawal Receipt"
       subtitle="Financial settlement confirmation"
     >
-      <ScrollView
-        contentContainerStyle={styles.container}
-        showsVerticalScrollIndicator={false}
-      >
+      <View style={styles.container}>
+        {/* LinkUp Watermark Logo behind receipt (matching Web) */}
+        <View pointerEvents="none" style={styles.watermarkWrap}>
+          <Image source={linkupLogo} style={styles.watermarkImage} resizeMode="contain" />
+        </View>
+
+        {/* LinkUp Financial Hub Header */}
+        <View style={styles.brandHeader}>
+          <View style={styles.brandLogoWrap}>
+            <Image source={linkupLogo} style={styles.brandLogo} resizeMode="contain" />
+          </View>
+          <View>
+            <Text style={styles.brandTitle}>Linkup</Text>
+            <Text style={styles.brandSubtitle}>FINANCIAL HUB</Text>
+          </View>
+        </View>
+
         {/* Status Pill Card */}
         <View
           style={[
@@ -240,11 +329,20 @@ export function PayoutReceiptModal({
         <View style={styles.actionRow}>
           <TouchableOpacity
             style={styles.shareBtn}
+            onPress={handlePrint}
+            activeOpacity={0.8}
+          >
+            <Printer size={16} color="#0f172a" />
+            <Text style={styles.shareBtnText}>Print</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.shareBtn}
             onPress={handleShare}
             activeOpacity={0.8}
           >
             <Share2 size={16} color="#0f172a" />
-            <Text style={styles.shareBtnText}>Share Receipt</Text>
+            <Text style={styles.shareBtnText}>Share</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -255,7 +353,7 @@ export function PayoutReceiptModal({
             <Text style={styles.closeBtnText}>Done</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
+      </View>
     </AppModal>
   );
 }
@@ -450,5 +548,51 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     color: '#ffffff',
+  },
+  watermarkWrap: {
+    position: 'absolute',
+    top: '32%',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0.06,
+    zIndex: 0,
+  },
+  watermarkImage: {
+    width: 220,
+    height: 220,
+  },
+  brandHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: colors.primary,
+    padding: 12,
+    borderRadius: 14,
+  },
+  brandLogoWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 9,
+    backgroundColor: '#ffffff',
+    padding: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandLogo: {
+    width: '100%',
+    height: '100%',
+  },
+  brandTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#ffffff',
+  },
+  brandSubtitle: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.8)',
+    letterSpacing: 1.2,
   },
 });

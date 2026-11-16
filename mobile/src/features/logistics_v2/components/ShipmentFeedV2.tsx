@@ -14,11 +14,10 @@ import {
   Search,
   Filter,
   X,
-  Package,
-  TrendingUp,
   PackageX,
   RefreshCw,
-  Clock,
+  ChevronDown,
+  Check,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { colors } from '../../../theme/colors';
@@ -47,6 +46,12 @@ export function ShipmentFeedV2({ defaultFilter = 'all' }: ShipmentFeedV2Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedShipment, setSelectedShipment] = useState<any>(null);
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterStatus, searchTerm]);
 
   const statusFilters = [
     { label: 'All', value: 'all' },
@@ -428,96 +433,104 @@ export function ShipmentFeedV2({ defaultFilter = 'all' }: ShipmentFeedV2Props) {
     );
   });
 
-  const activeCount = shipments.filter(
-    (s: any) => s.status !== 'delivered' && s.status !== 'completed'
-  ).length;
+  const PAGE_SIZE = 6;
+  const totalPages = Math.max(1, Math.ceil(filteredShipments.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedShipments = filteredShipments.slice(
+    (safePage - 1) * PAGE_SIZE,
+    safePage * PAGE_SIZE
+  );
+
+  const activeFilterLabel =
+    statusFilters.find((f) => f.value === filterStatus)?.label || 'All';
 
   return (
     <View style={styles.container}>
-      {/* Search Bar - Keyboard safe */}
-      <View style={styles.searchBarWrap}>
-        <Search size={18} color="#94a3b8" />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search Mission Ref or Address..."
-          placeholderTextColor="#94a3b8"
-          value={searchTerm}
-          onChangeText={setSearchTerm}
-          clearButtonMode="while-editing"
-          autoCorrect={false}
-          returnKeyType="search"
-        />
-        {searchTerm ? (
-          <TouchableOpacity onPress={() => setSearchTerm('')} activeOpacity={0.7}>
-            <X size={16} color="#94a3b8" />
-          </TouchableOpacity>
-        ) : null}
-      </View>
-
-      {/* Horizontal Status Filter Pills */}
-      <View style={styles.filterPillsRow}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterScroll}
-          keyboardShouldPersistTaps="handled"
-        >
-          {statusFilters.map((f) => {
-            const isActive = filterStatus === f.value;
-            return (
-              <TouchableOpacity
-                key={f.value}
-                style={[styles.filterPill, isActive && styles.filterPillActive]}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setFilterStatus(f.value);
-                }}
-                activeOpacity={0.75}
-              >
-                <Text style={[styles.filterPillText, isActive && styles.filterPillTextActive]}>
-                  {f.label}
-                </Text>
+      {/* Unified Search + Filter Dropdown Toolbar */}
+      <View style={styles.toolbarWrap}>
+        <View style={styles.toolbarRow}>
+          <View style={styles.searchBarWrap}>
+            <Search size={17} color="#94a3b8" />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search ref, area, or name..."
+              placeholderTextColor="#94a3b8"
+              value={searchTerm}
+              onChangeText={setSearchTerm}
+              clearButtonMode="while-editing"
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+            {searchTerm ? (
+              <TouchableOpacity onPress={() => setSearchTerm('')} activeOpacity={0.7}>
+                <X size={15} color="#94a3b8" />
               </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      {/* Quick Stats Banners (Mobile) */}
-      <View style={styles.statsRow}>
-        <View style={styles.statMiniCard}>
-          <View style={styles.statMiniHeader}>
-            <Text style={styles.statMiniLabel}>READY PAYOUT</Text>
-            <View style={[styles.statMiniIconWrap, { backgroundColor: '#ECFDF5' }]}>
-              <TrendingUp size={12} color="#059669" />
-            </View>
+            ) : null}
           </View>
-          <Text style={styles.statMiniValue}>
-            ₦{walletTotal.toLocaleString('en-NG')}
-          </Text>
+
+          <TouchableOpacity
+            style={[
+              styles.dropdownTrigger,
+              (filterOpen || filterStatus !== 'all') && styles.dropdownTriggerActive,
+            ]}
+            activeOpacity={0.8}
+            onPress={() => {
+              Haptics.selectionAsync().catch(() => {});
+              setFilterOpen((prev) => !prev);
+            }}
+          >
+            <Filter
+              size={14}
+              color={filterStatus !== 'all' ? colors.primary : '#64748b'}
+            />
+            <Text
+              style={[
+                styles.dropdownTriggerText,
+                filterStatus !== 'all' && styles.dropdownTriggerTextActive,
+              ]}
+            >
+              {activeFilterLabel}
+            </Text>
+            <ChevronDown
+              size={14}
+              color={filterStatus !== 'all' ? colors.primary : '#64748b'}
+            />
+          </TouchableOpacity>
         </View>
 
-        <View style={styles.statMiniCard}>
-          <View style={styles.statMiniHeader}>
-            <Text style={styles.statMiniLabel}>SAFETY HOLD</Text>
-            <View style={[styles.statMiniIconWrap, { backgroundColor: '#FFFBEB' }]}>
-              <Clock size={12} color="#D97706" />
-            </View>
+        {filterOpen && (
+          <View style={styles.dropdownMenu}>
+            {statusFilters.map((f, idx) => {
+              const isSelected = filterStatus === f.value;
+              return (
+                <TouchableOpacity
+                  key={f.value}
+                  style={[
+                    styles.dropdownItem,
+                    idx < statusFilters.length - 1 && styles.dropdownItemBorder,
+                    isSelected && styles.dropdownItemActive,
+                  ]}
+                  activeOpacity={0.75}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    setFilterStatus(f.value);
+                    setFilterOpen(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.dropdownItemText,
+                      isSelected && styles.dropdownItemTextActive,
+                    ]}
+                  >
+                    {f.label}
+                  </Text>
+                  {isSelected && <Check size={14} color={colors.primary} />}
+                </TouchableOpacity>
+              );
+            })}
           </View>
-          <Text style={[styles.statMiniValue, { color: '#B45309' }]}>
-            ₦{escrowTotal.toLocaleString('en-NG')}
-          </Text>
-        </View>
-
-        <View style={styles.statMiniCard}>
-          <View style={styles.statMiniHeader}>
-            <Text style={styles.statMiniLabel}>ACTIVE JOBS</Text>
-            <View style={[styles.statMiniIconWrap, { backgroundColor: '#EFF6FF' }]}>
-              <Package size={12} color="#2563EB" />
-            </View>
-          </View>
-          <Text style={styles.statMiniValue}>{activeCount}</Text>
-        </View>
+        )}
       </View>
 
       {/* List of Shipments */}
@@ -528,7 +541,7 @@ export function ShipmentFeedV2({ defaultFilter = 'all' }: ShipmentFeedV2Props) {
         </View>
       ) : (
         <FlatList
-          data={filteredShipments}
+          data={paginatedShipments}
           keyExtractor={(item) => String(item.id || item.order_id)}
           renderItem={({ item }) => (
             <ShipmentCardV2
@@ -551,6 +564,48 @@ export function ShipmentFeedV2({ defaultFilter = 'all' }: ShipmentFeedV2Props) {
               tintColor={colors.primary}
               colors={[colors.primary]}
             />
+          }
+          ListFooterComponent={
+            totalPages > 1 ? (
+              <View style={styles.paginationRow}>
+                <TouchableOpacity
+                  style={[styles.pageBtn, safePage <= 1 && styles.pageBtnDisabled]}
+                  disabled={safePage <= 1}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    setCurrentPage(Math.max(1, safePage - 1));
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Text style={[styles.pageBtnText, safePage <= 1 && styles.pageBtnTextDisabled]}>
+                    Prev
+                  </Text>
+                </TouchableOpacity>
+
+                <Text style={styles.pageInfo}>
+                  Page {safePage} of {totalPages} ({filteredShipments.length})
+                </Text>
+
+                <TouchableOpacity
+                  style={[styles.pageBtn, safePage >= totalPages && styles.pageBtnDisabled]}
+                  disabled={safePage >= totalPages}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    setCurrentPage(Math.min(totalPages, safePage + 1));
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[
+                      styles.pageBtnText,
+                      safePage >= totalPages && styles.pageBtnTextDisabled,
+                    ]}
+                  >
+                    Next
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
@@ -590,19 +645,29 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  toolbarWrap: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 12,
+    zIndex: 20,
+    position: 'relative',
+  },
+  toolbarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   searchBarWrap: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    height: 48,
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 10,
-    gap: 10,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    height: 44,
+    gap: 8,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
@@ -612,41 +677,75 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#0f172a',
   },
-  filterPillsRow: {
-    marginBottom: 12,
-  },
-  filterScroll: {
-    paddingHorizontal: 16,
-    gap: 8,
-  },
-  filterPill: {
+  dropdownTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 44,
+    paddingHorizontal: 12,
+    borderRadius: 14,
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    borderRadius: 14,
-  },
-  filterPillActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
     shadowRadius: 4,
-    elevation: 3,
+    elevation: 1,
   },
-  filterPillText: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#64748b',
-    letterSpacing: 0.5,
+  dropdownTriggerActive: {
+    borderColor: colors.primary,
+    backgroundColor: '#FFF7ED',
   },
-  filterPillTextActive: {
-    color: '#ffffff',
+  dropdownTriggerText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#334155',
+  },
+  dropdownTriggerTextActive: {
+    color: colors.primary,
+  },
+  dropdownMenu: {
+    position: 'absolute',
+    top: 50,
+    right: 0,
+    width: 170,
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 6,
+    overflow: 'hidden',
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  dropdownItemBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  dropdownItemActive: {
+    backgroundColor: '#FFF7ED',
+  },
+  dropdownItemText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  dropdownItemTextActive: {
+    color: colors.primary,
+    fontWeight: '800',
   },
   statsRow: {
     flexDirection: 'row',
@@ -750,5 +849,38 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: colors.primary,
+  },
+  paginationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  pageBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  pageBtnDisabled: {
+    backgroundColor: '#f8fafc',
+    opacity: 0.55,
+  },
+  pageBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  pageBtnTextDisabled: {
+    color: '#94a3b8',
+  },
+  pageInfo: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
   },
 });

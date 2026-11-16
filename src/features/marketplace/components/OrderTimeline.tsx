@@ -1,67 +1,34 @@
 import { CheckCircle2, MoreHorizontal, Truck, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getStateMeta, normalizeState, orderStateMachine } from "@/shared/state-machines";
 
 interface OrderTimelineProps {
     status: string;
     shipmentStatus?: string;
 }
 
-export function OrderTimeline({ status: rawStatus, shipmentStatus }: OrderTimelineProps) {
-    const status = rawStatus.toLowerCase();
+const STEP_IDS = ['pending', 'processing', 'transit', 'delivered'] as const;
+
+export function OrderTimeline({ status: rawStatus }: OrderTimelineProps) {
+    const status = normalizeState(orderStateMachine, rawStatus) ?? (rawStatus || 'pending').toLowerCase();
+    const meta = getStateMeta(orderStateMachine, status);
+    const currentStepIdx = meta.stepIndex ?? 0;
 
     const getStepStatus = (step: string) => {
         if (status === 'cancelled') return 'cancelled';
         if (status === 'refunded' || status === 'disputed') return 'complete';
 
-        const allStatuses = [
-            'pending', 
-            'confirmed', 
-            'awaiting_agent', 
-            'accepted', 
-            'out_for_pickup', 
-            'arrived_at_seller', 
-            'picked_up', 
-            'out_for_delivery', 
-            'arrived_at_destination', 
-            'delivered', 
-            'completed',
-            'refunded',
-            'disputed'
-        ];
-        const currentIdx = allStatuses.indexOf(status);
-        
-        let targetIdx = 0;
-        if (step === 'pending') targetIdx = 0; // pending, confirmed
-        else if (step === 'processing') targetIdx = 2; // awaiting_agent, accepted
-        else if (step === 'transit') targetIdx = 6; // out_for_pickup -> arrived_at_destination
-        else if (step === 'delivered') targetIdx = 9; // delivered, completed
-
-        // Custom logic for the middle steps
-        if (step === 'pending' && currentIdx >= 1) return 'complete';
-        if (step === 'processing' && currentIdx >= 4) return 'complete';
-        if (step === 'transit' && currentIdx >= 9) return 'complete';
-
-        if (currentIdx >= targetIdx) return 'complete';
-        if (currentIdx === targetIdx - 1) return 'current';
+        const targetIdx = STEP_IDS.indexOf(step as (typeof STEP_IDS)[number]);
+        if (currentStepIdx >= targetIdx) return 'complete';
+        if (currentStepIdx === targetIdx - 1) return 'current';
         return 'upcoming';
     };
 
     const getDynamicLabel = (stepId: string) => {
-        if (status === 'refunded') return 'Refunded';
-        if (status === 'disputed') return 'Disputed';
-        
-        if (stepId === 'processing') {
-            if (status === 'awaiting_agent') return 'Finding Agent';
-            if (status === 'accepted') return 'Agent Assigned';
-            return 'Clearing';
-        }
-        if (stepId === 'transit') {
-            if (status === 'out_for_pickup') return 'To Seller';
-            if (status === 'arrived_at_seller') return 'At Seller';
-            if (status === 'picked_up') return 'Picked Up';
-            if (status === 'out_for_delivery') return 'On the Way';
-            if (status === 'arrived_at_destination') return 'Arrived';
-            return 'Transit';
+        if (status === 'refunded' || status === 'disputed') return meta.shortLabel || meta.label;
+        const targetIdx = STEP_IDS.indexOf(stepId as (typeof STEP_IDS)[number]);
+        if (currentStepIdx === targetIdx && meta.shortLabel) {
+            return meta.shortLabel;
         }
         return steps.find(s => s.id === stepId)?.label || '';
     };

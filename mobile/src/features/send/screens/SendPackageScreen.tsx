@@ -55,6 +55,7 @@ import { StepPaymentSuccess } from '../components/steps/StepPaymentSuccess';
 import { useSendPricing } from '../hooks/useSendPricing';
 import { useSavedAddresses } from '../hooks/useSavedAddresses';
 import { generateSendOrderId } from '../utils/orderId';
+import { geocodeAddressText } from '../utils/geocoding';
 import { SendOrderFormData } from '../schemas/sendOrderSchema';
 import { SavedAddress } from '../types';
 
@@ -280,7 +281,7 @@ export function SendPackageScreen() {
   };
 
   // Step 2 Validation
-  const handleStep2Next = () => {
+  const handleStep2Next = async () => {
     const errs: Record<string, string> = {};
     if (!formData.senderName.trim()) errs.senderName = 'Sender full name is required';
     if (!formData.senderPhone.trim()) errs.senderPhone = 'Contact phone number is required';
@@ -292,13 +293,26 @@ export function SendPackageScreen() {
       return;
     }
 
+    if (typeof formData.pickupLat !== 'number' || typeof formData.pickupLng !== 'number') {
+      const resolved = await geocodeAddressText(formData.pickupAddress);
+      if (resolved) {
+        updateFormData({ pickupLat: resolved.latitude, pickupLng: resolved.longitude });
+      } else {
+        setErrors({
+          pickupAddress: 'Please pick a suggested address, Detect Address, or Pin on Live Map',
+        });
+        toast.error('Could not locate pickup address for distance calculation');
+        return;
+      }
+    }
+
     setErrors({});
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
     setStep(3);
   };
 
   // Step 3 Validation
-  const handleStep3Next = () => {
+  const handleStep3Next = async () => {
     const errs: Record<string, string> = {};
     if (!formData.dropoffRecipientName.trim()) errs.dropoffRecipientName = 'Recipient name is required';
     if (!formData.dropoffRecipientPhone.trim()) errs.dropoffRecipientPhone = 'Recipient phone number is required';
@@ -308,6 +322,19 @@ export function SendPackageScreen() {
       setErrors(errs);
       toast.error('Please complete all required drop-off fields');
       return;
+    }
+
+    if (typeof formData.dropoffLat !== 'number' || typeof formData.dropoffLng !== 'number') {
+      const resolved = await geocodeAddressText(formData.dropoffAddress);
+      if (resolved) {
+        updateFormData({ dropoffLat: resolved.latitude, dropoffLng: resolved.longitude });
+      } else {
+        setErrors({
+          dropoffAddress: 'Please pick a suggested address, Detect Address, or Pin on Live Map',
+        });
+        toast.error('Could not locate destination address for distance calculation');
+        return;
+      }
     }
 
     setErrors({});
@@ -891,7 +918,9 @@ export function SendPackageScreen() {
                       latitude={formData.pickupLat}
                       longitude={formData.pickupLng}
                       mode="pickup"
-                      onChangeAddress={(val) => updateFormData({ pickupAddress: val })}
+                      onChangeAddress={(val) =>
+                        updateFormData({ pickupAddress: val, pickupLat: null, pickupLng: null })
+                      }
                       onSelectLocation={(data) => {
                         updateFormData({
                           pickupAddress: data.address,
@@ -1065,7 +1094,9 @@ export function SendPackageScreen() {
                       latitude={formData.dropoffLat}
                       longitude={formData.dropoffLng}
                       mode="dropoff"
-                      onChangeAddress={(val) => updateFormData({ dropoffAddress: val })}
+                      onChangeAddress={(val) =>
+                        updateFormData({ dropoffAddress: val, dropoffLat: null, dropoffLng: null })
+                      }
                       onSelectLocation={(data) => {
                         updateFormData({
                           dropoffAddress: data.address,

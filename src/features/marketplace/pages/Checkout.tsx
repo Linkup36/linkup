@@ -306,8 +306,12 @@ export default function Checkout() {
       // Save shipping details for future checkout sessions on this device
       localStorage.setItem("linkup_last_shipping_address", JSON.stringify(shipping));
 
-      const { data: pkData } = await supabase.functions.invoke("paystack-public-key");
-      const publicKey = (pkData as any)?.publicKey;
+      // Prioritize local .env test key when testing locally, fallback to Supabase cloud function
+      let publicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
+      if (!publicKey) {
+        const { data: pkData } = await supabase.functions.invoke("paystack-public-key");
+        publicKey = (pkData as any)?.publicKey;
+      }
       if (!publicKey) throw new Error("The payment system is currently unavailable. Please try later.");
 
       const paid = await pay({

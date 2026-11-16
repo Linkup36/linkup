@@ -8,6 +8,7 @@ import {
   ScrollView,
   Image,
   Alert,
+  Platform,
 } from 'react-native';
 import {
   Store,
@@ -154,41 +155,57 @@ export function AdminKycTab() {
     fetchKycData();
   }, []);
 
+  const executeReviewAction = async (status: 'verified' | 'rejected') => {
+    if (!selectedKyc) return;
+    setProcessingStatus(true);
+    try {
+      const rpc =
+        selectedKyc.kyc_type === 'seller' ? 'verify_seller_kyc' : 'verify_logistics_kyc';
+      const params =
+        selectedKyc.kyc_type === 'seller'
+          ? { verification_id: selectedKyc.id, review_status: status }
+          : { p_verification_id: selectedKyc.id, p_review_status: status };
+
+      const { error } = await (supabase as any).rpc(rpc, params);
+      if (error) throw error;
+
+      toast.success(`Application ${status.toUpperCase()}`);
+      setSelectedKyc(null);
+      fetchKycData();
+    } catch (err: any) {
+      toast.error('Review Failed', { description: err.message });
+    } finally {
+      setProcessingStatus(false);
+    }
+  };
+
   const handleReviewAction = async (status: 'verified' | 'rejected') => {
     if (!selectedKyc) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 
     const isApprove = status === 'verified';
+    const message = `Are you sure you want to ${isApprove ? 'APPROVE' : 'REJECT'} this ${selectedKyc.kyc_type} application?`;
+
+    if (Platform.OS === 'web') {
+      const confirmed =
+        typeof window !== 'undefined' && typeof window.confirm === 'function'
+          ? window.confirm(message)
+          : true;
+      if (confirmed) {
+        await executeReviewAction(status);
+      }
+      return;
+    }
+
     Alert.alert(
       isApprove ? 'Approve Verification' : 'Reject Verification',
-      `Are you sure you want to ${isApprove ? 'APPROVE' : 'REJECT'} this ${selectedKyc.kyc_type} application?`,
+      message,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: isApprove ? 'Approve' : 'Reject',
           style: isApprove ? 'default' : 'destructive',
-          onPress: async () => {
-            setProcessingStatus(true);
-            try {
-              const rpc =
-                selectedKyc.kyc_type === 'seller' ? 'verify_seller_kyc' : 'verify_logistics_kyc';
-              const params =
-                selectedKyc.kyc_type === 'seller'
-                  ? { verification_id: selectedKyc.id, review_status: status }
-                  : { p_verification_id: selectedKyc.id, p_review_status: status };
-
-              const { data, error } = await (supabase as any).rpc(rpc, params);
-              if (error) throw error;
-
-              toast.success(`Application ${status.toUpperCase()}`);
-              setSelectedKyc(null);
-              fetchKycData();
-            } catch (err: any) {
-              toast.error('Review Failed', { description: err.message });
-            } finally {
-              setProcessingStatus(false);
-            }
-          },
+          onPress: () => executeReviewAction(status),
         },
       ]
     );

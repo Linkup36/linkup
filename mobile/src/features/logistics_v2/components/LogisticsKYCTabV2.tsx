@@ -243,11 +243,8 @@ export function LogisticsKYCTabV2() {
         full_name: fullName.trim(),
         phone_number: phone.trim(),
         home_address: homeAddress.trim(),
-        date_of_birth: dob.trim(),
+        date_of_birth: dob.trim() || null,
         nin_number: ninNumber.trim(),
-        driver_license_number: driverLicenseNumber.trim(),
-        vehicle_type: vehicleType,
-        plate_number: plateNumber.trim().toUpperCase(),
         city_id: cityId || null,
         zone_id: zoneId || null,
         passport_photo_url: passportPath,
@@ -378,7 +375,8 @@ export function LogisticsKYCTabV2() {
           </View>
         )}
 
-        {/* Verification Form */}
+        {/* Verification Form (hidden once verified) */}
+        {kycStatus !== 'verified' && (
         <View style={styles.formCard}>
           <Text style={styles.formSectionHeading}>RIDER CREDENTIALS</Text>
 
@@ -651,11 +649,12 @@ export function LogisticsKYCTabV2() {
               <ActivityIndicator size="small" color="#ffffff" />
             ) : (
               <Text style={styles.submitBtnText}>
-                {kycStatus === 'verified' ? 'UPDATE CREDENTIALS' : 'SUBMIT FOR VERIFICATION'}
+                SUBMIT FOR VERIFICATION
               </Text>
             )}
           </TouchableOpacity>
         </View>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );

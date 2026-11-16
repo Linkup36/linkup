@@ -171,6 +171,7 @@ export function CheckoutScreen() {
           .from('delivery_zones')
           .select('*')
           .eq('city_id', shipping.city_id)
+          .eq('is_active', true)
           .order('name');
         if (data) {
           setZones(data);

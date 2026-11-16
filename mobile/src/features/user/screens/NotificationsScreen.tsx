@@ -42,7 +42,7 @@ interface NotificationItem {
   title: string;
   message: string;
   type?: string;
-  is_read: boolean;
+  read: boolean;
   created_at: string;
 }
 
@@ -117,10 +117,10 @@ export function NotificationsScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       await supabase
         .from('notifications')
-        .update({ is_read: true })
+        .update({ read: true })
         .eq('user_id', user.id);
 
-      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     } catch (e) {
       console.warn('Mark as read error', e);
     }
@@ -207,7 +207,7 @@ export function NotificationsScreen() {
               title: '🚀 LinkUp Remote Alert',
               message: 'Database real-time notification fired! Banner and sound triggered.',
               type: 'system',
-              is_read: false,
+              read: false,
             });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
             setLastTestStatus('Fired via Supabase Real-Time! Watch top banner.');
@@ -419,12 +419,12 @@ export function NotificationsScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <View style={[styles.notifCard, !item.is_read && styles.unreadCard]}>
+          <View style={[styles.notifCard, !item.read && styles.unreadCard]}>
             <View style={styles.iconBox}>{getNotificationIcon(item.type)}</View>
             <View style={styles.notifContent}>
               <View style={styles.titleRow}>
                 <Text style={styles.notifTitle}>{item.title}</Text>
-                {!item.is_read && <View style={styles.unreadDot} />}
+                {!item.read && <View style={styles.unreadDot} />}
               </View>
               <Text style={styles.notifMessage}>{item.message}</Text>
               <Text style={styles.notifDate}>

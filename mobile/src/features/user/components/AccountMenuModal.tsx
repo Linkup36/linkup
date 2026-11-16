@@ -9,7 +9,9 @@ import {
   Dimensions,
   ActivityIndicator,
   Platform,
+  ScrollView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   User,
   Package,
@@ -56,16 +58,17 @@ export function AccountMenuModal({
 }: AccountMenuModalProps) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { user, profile, roles, signOut, refreshProfile } = useAuth();
+  const insets = useSafeAreaInsets();
+  const drawerWidth = Math.max(Math.round(SCREEN_WIDTH * 0.5), 220);
 
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isUpdatingLocation, setIsUpdatingLocation] = useState(false);
   const [isPushActive, setIsPushActive] = useState(true);
   const [isQuickEditOpen, setIsQuickEditOpen] = useState(false);
 
-  // Framer-motion style spring entrance values
+  // Full-height right-drawer slide entrance values
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.92)).current;
-  const translateYAnim = useRef(new Animated.Value(-12)).current;
+  const slideXAnim = useRef(new Animated.Value(drawerWidth)).current;
   const isClosingRef = useRef(false);
 
   // Load sound preferences
@@ -83,30 +86,23 @@ export function AccountMenuModal({
     if (visible) {
       isClosingRef.current = false;
       fadeAnim.setValue(0);
-      scaleAnim.setValue(0.92);
-      translateYAnim.setValue(-12);
+      slideXAnim.setValue(drawerWidth);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 1,
-          duration: 180,
+          duration: 200,
           useNativeDriver: true,
         }),
-        Animated.spring(scaleAnim, {
-          toValue: 1,
-          friction: 8,
-          tension: 100,
-          useNativeDriver: true,
-        }),
-        Animated.spring(translateYAnim, {
+        Animated.spring(slideXAnim, {
           toValue: 0,
-          friction: 8,
-          tension: 100,
+          damping: 22,
+          stiffness: 220,
           useNativeDriver: true,
         }),
       ]).start();
     }
-  }, [visible]);
+  }, [visible, drawerWidth]);
 
   if (!visible) return null;
 
@@ -117,17 +113,12 @@ export function AccountMenuModal({
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 0,
-        duration: 130,
+        duration: 160,
         useNativeDriver: true,
       }),
-      Animated.timing(scaleAnim, {
-        toValue: 0.94,
-        duration: 130,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateYAnim, {
-        toValue: -8,
-        duration: 130,
+      Animated.timing(slideXAnim, {
+        toValue: drawerWidth,
+        duration: 180,
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -274,10 +265,17 @@ export function AccountMenuModal({
         statusBarTranslucent
       >
         <View style={styles.overlay}>
-          {/* Animated visual dimmed backdrop */}
+          {/* Animated blurred/dimmed marketplace backdrop */}
           <Animated.View
             pointerEvents="none"
-            style={[styles.backdrop, { opacity: fadeAnim }]}
+            style={[
+              styles.backdrop,
+              Platform.OS === 'web' && ({
+                backdropFilter: 'blur(10px)',
+                WebkitBackdropFilter: 'blur(10px)',
+              } as any),
+              { opacity: fadeAnim },
+            ]}
           />
 
           {/* Full-screen Backdrop Touchable to dismiss when clicking outside */}
@@ -289,17 +287,16 @@ export function AccountMenuModal({
             accessibilityLabel="Close account menu"
           />
 
-          {/* Account Dropdown Flyout Card */}
+          {/* Full-Height Half-Width Right Drawer */}
           <Animated.View
             onStartShouldSetResponder={() => true}
             style={[
               styles.card,
               {
-                opacity: fadeAnim,
-                transform: [
-                  { scale: scaleAnim },
-                  { translateY: translateYAnim },
-                ],
+                width: drawerWidth,
+                paddingTop: Math.max(insets.top, 18),
+                paddingBottom: Math.max(insets.bottom, 18),
+                transform: [{ translateX: slideXAnim }],
               },
             ]}
           >
@@ -318,6 +315,10 @@ export function AccountMenuModal({
               </TouchableOpacity>
             </View>
 
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 16 }}
+            >
             {/* Menu Items */}
             <View style={styles.menuList}>
               {/* 1. My Registry Page */}
@@ -495,6 +496,7 @@ export function AccountMenuModal({
                 <Text style={styles.logoutText}>Logout Account</Text>
               </TouchableOpacity>
             </View>
+            </ScrollView>
           </Animated.View>
         </View>
       </Modal>
@@ -526,26 +528,25 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    backgroundColor: 'rgba(15, 23, 42, 0.36)',
   },
   card: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 74 : 58,
-    right: 14,
-    width: Math.min(SCREEN_WIDTH - 28, 310),
+    top: 0,
+    bottom: 0,
+    right: 0,
     backgroundColor: '#ffffff',
-    borderRadius: 24,
+    borderTopLeftRadius: 24,
+    borderBottomLeftRadius: 24,
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 16,
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 12 },
+    shadowOffset: { width: -8, height: 0 },
     shadowOpacity: 0.16,
-    shadowRadius: 28,
+    shadowRadius: 24,
     elevation: 20,
     zIndex: 100,
-    borderWidth: 1,
-    borderColor: 'rgba(241, 245, 249, 0.9)',
+    borderLeftWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.9)',
   },
   cardHeader: {
     flexDirection: 'row',

@@ -17,6 +17,7 @@ import { SafeView } from '../../../components/ui/SafeView';
 import { Button } from '../../../components/ui/Button';
 import { AppModal } from '../../../components/ui/AppModal';
 import { PaystackWebViewModal } from '../../../components/ui/PaystackWebViewModal';
+import { PayoutReceiptModal } from '../../seller/components/PayoutReceiptModal';
 import { useAuth } from '../../../context/AuthContext';
 import { supabase, invokeEdgeFunction } from '../../../services/supabase';
 import {
@@ -42,12 +43,28 @@ interface Transaction {
   created_at: string;
 }
 
+interface PayoutRequestItem {
+  id: string;
+  amount: number;
+  fee_amount?: number;
+  status: string;
+  bank_name: string;
+  account_number: string;
+  admin_notes?: string | null;
+  created_at: string;
+}
+
 export function WalletScreen() {
   const navigation = useNavigation();
   const { user, profile } = useAuth();
 
   const [wallet, setWallet] = useState<{ id: string; balance: number; escrow_balance: number } | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [payoutRequests, setPayoutRequests] = useState<PayoutRequestItem[]>([]);
+  const [historyTab, setHistoryTab] = useState<'transactions' | 'withdrawals'>('transactions');
+  const [txPage, setTxPage] = useState(1);
+  const [payoutPage, setPayoutPage] = useState(1);
+  const [selectedReceipt, setSelectedReceipt] = useState<PayoutRequestItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -117,11 +134,23 @@ export function WalletScreen() {
           .select('id, amount, type, reference, created_at')
           .eq('wallet_id', wData.id)
           .order('created_at', { ascending: false })
-          .limit(30);
+          .limit(50);
 
         if (txData) {
           setTransactions(txData as Transaction[]);
         }
+      }
+
+      // 3. Fetch withdrawal / payout requests (including rejected & refunded)
+      const { data: prData } = await supabase
+        .from('payout_requests')
+        .select('id, amount, fee_amount, status, bank_name, account_number, admin_notes, created_at')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (prData) {
+        setPayoutRequests(prData as PayoutRequestItem[]);
       }
     } catch (err) {
       console.warn('[WalletScreen] Error loading wallet:', err);
@@ -133,6 +162,25 @@ export function WalletScreen() {
 
   useEffect(() => {
     fetchWalletData();
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`wallet-user-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'payout_requests', filter: `user_id=eq.${user.id}` },
+        () => fetchWalletData()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'wallets', filter: `user_id=eq.${user.id}` },
+        () => fetchWalletData()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
   useEffect(() => {
@@ -307,12 +355,12 @@ export function WalletScreen() {
           {/* Action Buttons */}
           <View style={styles.actionRow}>
             <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={() => setIsDepositOpen(true)}
-              activeOpacity={0.8}
+              style={[styles.actionBtn, { opacity: 0.45 }]}
+              disabled={true}
+              activeOpacity={1}
             >
-              <ArrowDownToLine size={18} color={colors.primary} />
-              <Text style={styles.actionBtnText}>Add Money</Text>
+              <ArrowDownToLine size={18} color="#94a3b8" />
+              <Text style={[styles.actionBtnText, { color: '#64748b' }]}>Add Money</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -326,16 +374,156 @@ export function WalletScreen() {
           </View>
         </View>
 
-        {/* Transactions Section */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Transaction History</Text>
-          <Text style={styles.sectionCount}>{transactions.length} records</Text>
+        {/* Segmented Toggle: Transactions vs Withdrawals */}
+        <View style={styles.historyToggleBar}>
+          <TouchableOpacity
+            style={[
+              styles.historyToggleBtn,
+              historyTab === 'transactions' && styles.historyToggleBtnActive,
+            ]}
+            activeOpacity={0.8}
+            onPress={() => setHistoryTab('transactions')}
+          >
+            <Text
+              style={[
+                styles.historyToggleText,
+                historyTab === 'transactions' && styles.historyToggleTextActive,
+              ]}
+            >
+              Transactions ({transactions.length})
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.historyToggleBtn,
+              historyTab === 'withdrawals' && styles.historyToggleBtnActive,
+            ]}
+            activeOpacity={0.8}
+            onPress={() => setHistoryTab('withdrawals')}
+          >
+            <Text
+              style={[
+                styles.historyToggleText,
+                historyTab === 'withdrawals' && styles.historyToggleTextActive,
+              ]}
+            >
+              Withdrawals ({payoutRequests.length})
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator size="small" color={colors.primary} />
           </View>
+        ) : historyTab === 'withdrawals' ? (
+          (() => {
+            if (payoutRequests.length === 0) {
+              return (
+                <View style={styles.emptyContainer}>
+                  <ArrowUpRight size={40} color="#cbd5e1" />
+                  <Text style={styles.emptyTitle}>No withdrawal requests yet</Text>
+                  <Text style={styles.emptySubtitle}>
+                    Your bank payout requests and their status will appear here.
+                  </Text>
+                </View>
+              );
+            }
+
+            const PAYOUT_PAGE_SIZE = 4;
+            const totalPayoutPages = Math.max(1, Math.ceil(payoutRequests.length / PAYOUT_PAGE_SIZE));
+            const safePage = Math.min(payoutPage, totalPayoutPages);
+            const paginatedPayouts = payoutRequests.slice(
+              (safePage - 1) * PAYOUT_PAGE_SIZE,
+              safePage * PAYOUT_PAGE_SIZE
+            );
+
+            return (
+              <>
+                {paginatedPayouts.map((req) => {
+                  const st = (req.status || 'pending').toLowerCase();
+                  const badgeStyle =
+                    st === 'completed' || st === 'approved' || st === 'paid'
+                      ? { bg: '#dcfce7', text: '#15803d', label: st === 'completed' ? 'Completed' : 'Approved' }
+                      : st === 'rejected'
+                      ? { bg: '#fee2e2', text: '#b91c1c', label: 'Rejected • Refunded' }
+                      : { bg: '#fef3c7', text: '#b45309', label: 'Pending' };
+
+                  return (
+                    <TouchableOpacity
+                      key={req.id}
+                      style={styles.payoutCard}
+                      activeOpacity={0.75}
+                      onPress={() => setSelectedReceipt(req)}
+                    >
+                      <View style={styles.payoutTopRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.payoutAmount}>{formatPrice(req.amount)}</Text>
+                          <Text style={styles.payoutBank}>
+                            {req.bank_name} • {req.account_number}
+                          </Text>
+                        </View>
+                        <View style={[styles.payoutBadge, { backgroundColor: badgeStyle.bg }]}>
+                          <Text style={[styles.payoutBadgeText, { color: badgeStyle.text }]}>
+                            {badgeStyle.label}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.payoutDate}>
+                        {new Date(req.created_at).toLocaleDateString('en-GB', {
+                          day: 'numeric',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                        {Number(req.fee_amount || 0) > 0
+                          ? ` • Fee: ${formatPrice(Number(req.fee_amount))}`
+                          : ''}
+                        {' • Tap for receipt'}
+                      </Text>
+                      {st === 'rejected' && !!req.admin_notes && (
+                        <Text style={styles.payoutNote}>Reason: {req.admin_notes}</Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+
+                {totalPayoutPages > 1 && (
+                  <View style={styles.paginationRow}>
+                    <TouchableOpacity
+                      style={[styles.pageBtn, safePage <= 1 && styles.pageBtnDisabled]}
+                      disabled={safePage <= 1}
+                      onPress={() => setPayoutPage(Math.max(1, safePage - 1))}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.pageBtnText, safePage <= 1 && styles.pageBtnTextDisabled]}>
+                        Prev
+                      </Text>
+                    </TouchableOpacity>
+                    <Text style={styles.pageInfo}>
+                      Page {safePage} of {totalPayoutPages}
+                    </Text>
+                    <TouchableOpacity
+                      style={[styles.pageBtn, safePage >= totalPayoutPages && styles.pageBtnDisabled]}
+                      disabled={safePage >= totalPayoutPages}
+                      onPress={() => setPayoutPage(Math.min(totalPayoutPages, safePage + 1))}
+                      activeOpacity={0.75}
+                    >
+                      <Text
+                        style={[
+                          styles.pageBtnText,
+                          safePage >= totalPayoutPages && styles.pageBtnTextDisabled,
+                        ]}
+                      >
+                        Next
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </>
+            );
+          })()
         ) : transactions.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Wallet size={40} color="#cbd5e1" />
@@ -343,34 +531,83 @@ export function WalletScreen() {
             <Text style={styles.emptySubtitle}>Your deposits, payouts, and order payments will appear here.</Text>
           </View>
         ) : (
-          transactions.map((tx) => {
-            const isCredit = tx.type === 'credit';
-            return (
-              <View key={tx.id} style={styles.txRow}>
-                <View style={[styles.txIcon, isCredit ? styles.creditIcon : styles.debitIcon]}>
-                  {isCredit ? (
-                    <ArrowDownToLine size={18} color="#16a34a" />
-                  ) : (
-                    <ArrowUpRight size={18} color="#ef4444" />
-                  )}
-                </View>
-                <View style={styles.txInfo}>
-                  <Text style={styles.txRef}>{tx.reference || (isCredit ? 'Wallet Top-Up' : 'Payout/Debit')}</Text>
-                  <Text style={styles.txDate}>
-                    {new Date(tx.created_at).toLocaleDateString('en-GB', {
-                      day: 'numeric',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </Text>
-                </View>
-                <Text style={[styles.txAmount, isCredit ? styles.creditAmount : styles.debitAmount]}>
-                  {isCredit ? '+' : '-'} {formatPrice(tx.amount)}
-                </Text>
-              </View>
+          (() => {
+            const TX_PAGE_SIZE = 5;
+            const totalTxPages = Math.max(1, Math.ceil(transactions.length / TX_PAGE_SIZE));
+            const safeTxPage = Math.min(txPage, totalTxPages);
+            const paginatedTxs = transactions.slice(
+              (safeTxPage - 1) * TX_PAGE_SIZE,
+              safeTxPage * TX_PAGE_SIZE
             );
-          })
+
+            return (
+              <>
+                {paginatedTxs.map((tx) => {
+                  const txType = (tx.type || '').toLowerCase();
+                  const isCredit =
+                    tx.amount > 0 || ['credit', 'refund', 'payout_refund'].includes(txType);
+                  return (
+                    <View key={tx.id} style={styles.txRow}>
+                      <View style={[styles.txIcon, isCredit ? styles.creditIcon : styles.debitIcon]}>
+                        {isCredit ? (
+                          <ArrowDownToLine size={18} color="#16a34a" />
+                        ) : (
+                          <ArrowUpRight size={18} color="#ef4444" />
+                        )}
+                      </View>
+                      <View style={styles.txInfo}>
+                        <Text style={styles.txRef}>{tx.reference || (isCredit ? 'Wallet Credit' : 'Payout/Debit')}</Text>
+                        <Text style={styles.txDate}>
+                          {new Date(tx.created_at).toLocaleDateString('en-GB', {
+                            day: 'numeric',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </Text>
+                      </View>
+                      <Text style={[styles.txAmount, isCredit ? styles.creditAmount : styles.debitAmount]}>
+                        {isCredit ? '+' : '-'} {formatPrice(Math.abs(tx.amount))}
+                      </Text>
+                    </View>
+                  );
+                })}
+
+                {totalTxPages > 1 && (
+                  <View style={styles.paginationRow}>
+                    <TouchableOpacity
+                      style={[styles.pageBtn, safeTxPage <= 1 && styles.pageBtnDisabled]}
+                      disabled={safeTxPage <= 1}
+                      onPress={() => setTxPage(Math.max(1, safeTxPage - 1))}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.pageBtnText, safeTxPage <= 1 && styles.pageBtnTextDisabled]}>
+                        Prev
+                      </Text>
+                    </TouchableOpacity>
+                    <Text style={styles.pageInfo}>
+                      Page {safeTxPage} of {totalTxPages}
+                    </Text>
+                    <TouchableOpacity
+                      style={[styles.pageBtn, safeTxPage >= totalTxPages && styles.pageBtnDisabled]}
+                      disabled={safeTxPage >= totalTxPages}
+                      onPress={() => setTxPage(Math.min(totalTxPages, safeTxPage + 1))}
+                      activeOpacity={0.75}
+                    >
+                      <Text
+                        style={[
+                          styles.pageBtnText,
+                          safeTxPage >= totalTxPages && styles.pageBtnTextDisabled,
+                        ]}
+                      >
+                        Next
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </>
+            );
+          })()
         )}
       </ScrollView>
 
@@ -564,6 +801,12 @@ export function WalletScreen() {
           />
         </View>
       </AppModal>
+
+      <PayoutReceiptModal
+        visible={selectedReceipt !== null}
+        onClose={() => setSelectedReceipt(null)}
+        request={selectedReceipt}
+      />
     </SafeView>
   );
 }
@@ -912,5 +1155,117 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
     color: colors.primary,
+  },
+  payoutCard: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  payoutTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  payoutAmount: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  payoutBank: {
+    fontSize: 12,
+    color: '#475569',
+    marginTop: 2,
+  },
+  payoutBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  payoutBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  payoutDate: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 6,
+  },
+  payoutNote: {
+    fontSize: 12,
+    color: '#b91c1c',
+    marginTop: 6,
+    fontWeight: '600',
+  },
+  paginationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: 16,
+    marginTop: 2,
+    marginBottom: 14,
+    paddingHorizontal: 4,
+  },
+  pageBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  pageBtnDisabled: {
+    backgroundColor: '#f8fafc',
+    opacity: 0.55,
+  },
+  pageBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  pageBtnTextDisabled: {
+    color: '#94a3b8',
+  },
+  pageInfo: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  historyToggleBar: {
+    flexDirection: 'row',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 14,
+    padding: 4,
+    marginTop: 22,
+    marginBottom: 14,
+    gap: 4,
+  },
+  historyToggleBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  historyToggleBtnActive: {
+    backgroundColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  historyToggleText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  historyToggleTextActive: {
+    color: '#0f172a',
+    fontWeight: '800',
   },
 });

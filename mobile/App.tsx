@@ -21,6 +21,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './src/context/AuthContext';
 import { CartProvider } from './src/context/CartContext';
 import { NetworkProvider } from './src/context/NetworkContext';
+import { NetworkStatusBanner } from './src/components/NetworkStatusBanner';
 import { RootNavigator } from './src/navigation/RootNavigator';
 
 interface Props {
@@ -135,6 +136,7 @@ export default function App() {
               <CartProvider>
                 <StatusBar style="light" />
                 <RootNavigator />
+                <NetworkStatusBanner />
               </CartProvider>
             </AuthProvider>
           </NetworkProvider>

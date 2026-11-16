@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,11 @@ import * as Haptics from 'expo-haptics';
 import { LocationPickerModal } from './LocationPickerModal';
 import { colors } from '../../../theme/colors';
 import { inferNigerianCityFromCoords } from '../utils/addressFormatter';
+import {
+  GeocodedSuggestion,
+  geocodeAddressText,
+  searchAddressSuggestions,
+} from '../utils/geocoding';
 
 interface AddressAutocompleteInputProps {
   label: string;
@@ -50,18 +55,76 @@ export function AddressAutocompleteInput({
   const [query, setQuery] = useState(value || '');
   const [isFocused, setIsFocused] = useState(false);
   const [isDetectingGps, setIsDetectingGps] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [suggestions, setSuggestions] = useState<GeocodedSuggestion[]>([]);
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
+  const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressSearchRef = useRef(false);
 
   const isPickup = mode === 'pickup';
   const hasCoords = typeof latitude === 'number' && typeof longitude === 'number';
 
   useEffect(() => {
-    setQuery(value || '');
-  }, [value]);
+    if (!isFocused) {
+      setQuery(value || '');
+    }
+  }, [value, isFocused]);
+
+  useEffect(() => {
+    if (suppressSearchRef.current) {
+      suppressSearchRef.current = false;
+      return;
+    }
+
+    const trimmed = query.trim();
+    if (!isFocused || trimmed.length < 3 || hasCoords) {
+      setSuggestions([]);
+      setIsSearching(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      const results = await searchAddressSuggestions(trimmed, controller.signal);
+      if (!controller.signal.aborted) {
+        setSuggestions(results);
+        setIsSearching(false);
+      }
+    }, 450);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query, isFocused, hasCoords]);
+
+  useEffect(() => {
+    return () => {
+      if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
+    };
+  }, []);
 
   const handleTextChange = (text: string) => {
     setQuery(text);
     onChangeAddress(text);
+  };
+
+  const handleSelectSuggestion = (item: GeocodedSuggestion) => {
+    if (blurTimerRef.current) {
+      clearTimeout(blurTimerRef.current);
+      blurTimerRef.current = null;
+    }
+    suppressSearchRef.current = true;
+    setQuery(item.label);
+    setSuggestions([]);
+    setIsFocused(false);
+    onSelectLocation({
+      address: item.label,
+      latitude: item.latitude,
+      longitude: item.longitude,
+    });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
   };
 
   const handleGpsDetect = async () => {
@@ -131,15 +194,35 @@ export function AddressAutocompleteInput({
           value={query}
           onChangeText={handleTextChange}
           onFocus={() => {
+            if (blurTimerRef.current) {
+              clearTimeout(blurTimerRef.current);
+              blurTimerRef.current = null;
+            }
             setIsFocused(true);
             onFocus?.();
           }}
           onBlur={() => {
-            setIsFocused(false);
+            const snapshot = query.trim();
+            blurTimerRef.current = setTimeout(async () => {
+              setIsFocused(false);
+              setSuggestions([]);
+              if (!hasCoords && snapshot.length >= 4) {
+                const resolved = await geocodeAddressText(snapshot);
+                if (resolved) {
+                  onSelectLocation({
+                    address: snapshot,
+                    latitude: resolved.latitude,
+                    longitude: resolved.longitude,
+                  });
+                }
+              }
+            }, 200);
           }}
         />
 
-        {isDetectingGps && <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 8 }} />}
+        {(isDetectingGps || isSearching) && (
+          <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 8 }} />
+        )}
       </View>
 
       {/* Action shortcuts under input: Detect Address & Pin on Map */}
@@ -169,6 +252,35 @@ export function AddressAutocompleteInput({
           <Text style={[styles.shortcutText, { color: '#2563eb' }]}>Pin on Live Map</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Non-blocking Inline Address Suggestions */}
+      {isFocused && suggestions.length > 0 && (
+        <View style={styles.suggestionsBox}>
+          {suggestions.map((item, index) => (
+            <TouchableOpacity
+              key={item.id}
+              activeOpacity={0.75}
+              onPress={() => handleSelectSuggestion(item)}
+              style={[
+                styles.suggestionItem,
+                index < suggestions.length - 1 && styles.suggestionItemBorder,
+              ]}
+            >
+              <MapPin size={14} color={colors.primary} style={{ marginTop: 2 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.suggestionLabel} numberOfLines={1}>
+                  {item.label}
+                </Text>
+                {!!item.sublabel && (
+                  <Text style={styles.suggestionSublabel} numberOfLines={1}>
+                    {item.sublabel}
+                  </Text>
+                )}
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
       {/* Error Message */}
       {!!error && <Text style={styles.errorText}>{error}</Text>}
@@ -276,5 +388,39 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#ef4444',
     marginTop: 4,
+  },
+  suggestionsBox: {
+    marginTop: 8,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  suggestionItemBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  suggestionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  suggestionSublabel: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 1,
   },
 });

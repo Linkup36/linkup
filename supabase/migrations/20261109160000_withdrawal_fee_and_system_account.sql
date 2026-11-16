@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS public.system_settings (
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS description TEXT;
+
 ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Public can read system settings" ON public.system_settings;
@@ -67,6 +69,8 @@ CREATE TABLE IF NOT EXISTS public.wallet_transactions (
     status TEXT DEFAULT 'completed',
     created_at TIMESTAMPTZ DEFAULT now()
 );
+
+ALTER TABLE public.wallet_transactions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed';
 
 ALTER TABLE public.wallet_transactions ENABLE ROW LEVEL SECURITY;
 

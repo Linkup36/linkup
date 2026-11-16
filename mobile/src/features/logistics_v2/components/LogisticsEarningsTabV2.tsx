@@ -32,6 +32,7 @@ import { colors } from '../../../theme/colors';
 import { toast } from '../../../components/ui/GooeyToast';
 import { supabase } from '../../../services/supabase';
 import { useAuth } from '../../../context/AuthContext';
+import { PayoutReceiptModal } from '../../seller/components/PayoutReceiptModal';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DAILY_LIMIT = 50000;
@@ -43,6 +44,11 @@ export function LogisticsEarningsTabV2() {
   const [walletId, setWalletId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [completedMissions, setCompletedMissions] = useState<any[]>([]);
+  const [payoutRequests, setPayoutRequests] = useState<any[]>([]);
+  const [historyTab, setHistoryTab] = useState<'missions' | 'withdrawals'>('missions');
+  const [missionsPage, setMissionsPage] = useState(1);
+  const [payoutsPage, setPayoutsPage] = useState(1);
+  const [selectedReceipt, setSelectedReceipt] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -82,7 +88,7 @@ export function LogisticsEarningsTabV2() {
         }
       }
 
-      // 2. Fetch completed shipments
+      // 2. Fetch completed shipments (with order & zone fallbacks for address)
       const { data: completedShipments } = await (supabase as any)
         .from('shipments')
         .select(`
@@ -93,15 +99,29 @@ export function LogisticsEarningsTabV2() {
           created_at,
           status,
           pickup_address,
-          delivery_address
+          delivery_address,
+          zone:delivery_zones(name),
+          order:orders(shipping_address, zone:delivery_zones(name))
         `)
         .eq('rider_id', user.id)
         .in('status', ['delivered', 'completed'])
         .order('created_at', { ascending: false })
-        .limit(20);
+        .limit(50);
 
       if (completedShipments) {
         setCompletedMissions(completedShipments);
+      }
+
+      // 3. Fetch rider withdrawal / payout requests
+      const { data: prData } = await (supabase as any)
+        .from('payout_requests')
+        .select('id, amount, fee_amount, status, bank_name, account_number, account_name, admin_notes, created_at')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (prData) {
+        setPayoutRequests(prData);
       }
 
       // Populate bank details from profile
@@ -163,7 +183,6 @@ export function LogisticsEarningsTabV2() {
           account_number: accountNumber.trim(),
           account_name: accountName.trim(),
           status: 'pending',
-          role: 'rider',
         },
       ]);
 
@@ -215,17 +234,17 @@ export function LogisticsEarningsTabV2() {
         <View style={styles.readyBalanceCard}>
           <View style={styles.cardHeaderRow}>
             <View style={styles.cardIconWrapGreen}>
-              <Wallet size={20} color="#059669" strokeWidth={2.5} />
+              <Wallet size={18} color="#34d399" strokeWidth={2.4} />
             </View>
             <View style={styles.badgeGreen}>
               <Text style={styles.badgeTextGreen}>READY</Text>
             </View>
           </View>
-          <Text style={styles.cardLabel}>READY BALANCE</Text>
+          <Text style={[styles.cardLabel, { color: '#94a3b8' }]}>READY BALANCE</Text>
           <Text style={styles.cardValueGreen}>
             ₦{balance.toLocaleString('en-NG')}
           </Text>
-          <Text style={styles.cardSubtext}>Available for immediate payout</Text>
+          <Text style={[styles.cardSubtext, { color: '#cbd5e1' }]}>Available for immediate payout</Text>
         </View>
 
         {/* Safety Hold / Escrow Card */}
@@ -270,41 +289,262 @@ export function LogisticsEarningsTabV2() {
         </View>
       </View>
 
-      {/* Completed Missions History */}
+      {/* History Toggle: Completed Missions vs Withdrawals */}
       <View style={styles.sectionWrap}>
-        <View style={styles.sectionHeader}>
-          <Package size={16} color="#64748b" />
-          <Text style={styles.sectionTitle}>RECENT COMPLETED MISSIONS</Text>
+        <View style={styles.historyToggleBar}>
+          <TouchableOpacity
+            style={[
+              styles.historyToggleBtn,
+              historyTab === 'missions' && styles.historyToggleBtnActive,
+            ]}
+            activeOpacity={0.8}
+            onPress={() => setHistoryTab('missions')}
+          >
+            <Text
+              style={[
+                styles.historyToggleText,
+                historyTab === 'missions' && styles.historyToggleTextActive,
+              ]}
+            >
+              Missions ({completedMissions.length})
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.historyToggleBtn,
+              historyTab === 'withdrawals' && styles.historyToggleBtnActive,
+            ]}
+            activeOpacity={0.8}
+            onPress={() => setHistoryTab('withdrawals')}
+          >
+            <Text
+              style={[
+                styles.historyToggleText,
+                historyTab === 'withdrawals' && styles.historyToggleTextActive,
+              ]}
+            >
+              Withdrawals ({payoutRequests.length})
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        {completedMissions.length === 0 ? (
+        {historyTab === 'withdrawals' ? (
+          payoutRequests.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>No withdrawal requests yet</Text>
+            </View>
+          ) : (
+            (() => {
+              const PAGE_SIZE = 5;
+              const totalPages = Math.max(1, Math.ceil(payoutRequests.length / PAGE_SIZE));
+              const safePage = Math.min(payoutsPage, totalPages);
+              const paginatedPayouts = payoutRequests.slice(
+                (safePage - 1) * PAGE_SIZE,
+                safePage * PAGE_SIZE
+              );
+
+              return (
+                <>
+                  {paginatedPayouts.map((req) => {
+                    const st = (req.status || 'pending').toLowerCase();
+                    const badgeStyle =
+                      st === 'completed' || st === 'approved' || st === 'paid'
+                        ? { bg: '#dcfce7', text: '#15803d', label: st === 'completed' ? 'COMPLETED' : 'APPROVED' }
+                        : st === 'rejected'
+                        ? { bg: '#fee2e2', text: '#b91c1c', label: 'REJECTED' }
+                        : { bg: '#fef3c7', text: '#b45309', label: 'PENDING' };
+
+                    return (
+                      <TouchableOpacity
+                        key={req.id}
+                        style={styles.missionHistoryCard}
+                        activeOpacity={0.75}
+                        onPress={() => setSelectedReceipt(req)}
+                      >
+                        <View style={[styles.historyLeft, { flex: 1, marginRight: 10 }]}>
+                          <View style={[styles.historyIconWrap, { backgroundColor: badgeStyle.bg }]}>
+                            <CreditCard size={16} color={badgeStyle.text} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.historyRef}>
+                              ₦{Number(req.amount || 0).toLocaleString('en-NG')} • {req.bank_name}
+                            </Text>
+                            <Text style={styles.historyAddress} numberOfLines={1}>
+                              {req.account_number} • {new Date(req.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} • Tap for receipt
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={[styles.payoutStatusPill, { backgroundColor: badgeStyle.bg }]}>
+                          <Text style={[styles.payoutStatusPillText, { color: badgeStyle.text }]}>
+                            {badgeStyle.label}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+
+                  {totalPages > 1 && (
+                    <View style={styles.paginationRow}>
+                      <TouchableOpacity
+                        style={[styles.pageBtn, safePage <= 1 && styles.pageBtnDisabled]}
+                        disabled={safePage <= 1}
+                        onPress={() => {
+                          Haptics.selectionAsync().catch(() => {});
+                          setPayoutsPage(Math.max(1, safePage - 1));
+                        }}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={[styles.pageBtnText, safePage <= 1 && styles.pageBtnTextDisabled]}>
+                          Prev
+                        </Text>
+                      </TouchableOpacity>
+
+                      <Text style={styles.pageInfo}>
+                        Page {safePage} of {totalPages} ({payoutRequests.length})
+                      </Text>
+
+                      <TouchableOpacity
+                        style={[styles.pageBtn, safePage >= totalPages && styles.pageBtnDisabled]}
+                        disabled={safePage >= totalPages}
+                        onPress={() => {
+                          Haptics.selectionAsync().catch(() => {});
+                          setPayoutsPage(Math.min(totalPages, safePage + 1));
+                        }}
+                        activeOpacity={0.75}
+                      >
+                        <Text
+                          style={[
+                            styles.pageBtnText,
+                            safePage >= totalPages && styles.pageBtnTextDisabled,
+                          ]}
+                        >
+                          Next
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </>
+              );
+            })()
+          )
+        ) : completedMissions.length === 0 ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyText}>No completed missions yet</Text>
           </View>
         ) : (
-          completedMissions.map((m) => (
-            <View key={m.id} style={styles.missionHistoryCard}>
-              <View style={styles.historyLeft}>
-                <View style={styles.historyIconWrap}>
-                  <CheckCircle size={16} color="#16a34a" />
-                </View>
-                <View>
-                  <Text style={styles.historyRef}>
-                    REF: #{String(m.order_id || m.id).slice(-8).toUpperCase()}
-                  </Text>
-                  <Text style={styles.historyAddress} numberOfLines={1}>
-                    {m.delivery_address || 'Delivered to recipient'}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.historyRight}>
-                <Text style={styles.historyAmount}>
-                  +₦{Number(m.delivery_fee || 1500).toLocaleString('en-NG')}
-                </Text>
-                <Text style={styles.historyStatus}>COMPLETED</Text>
-              </View>
-            </View>
-          ))
+          (() => {
+            const PAGE_SIZE = 5;
+            const totalPages = Math.max(1, Math.ceil(completedMissions.length / PAGE_SIZE));
+            const safePage = Math.min(missionsPage, totalPages);
+            const paginatedMissions = completedMissions.slice(
+              (safePage - 1) * PAGE_SIZE,
+              safePage * PAGE_SIZE
+            );
+
+const formatCompletedAddress = (m: any): string => {
+  const cleanStr = (v: any) => {
+    if (typeof v !== 'string') return '';
+    const trimmed = v.trim();
+    return trimmed.replace(/[\s,]+/g, '').length > 0 ? trimmed : '';
+  };
+
+  const direct = cleanStr(m?.delivery_address);
+  if (direct) return direct;
+
+  const shipAddr = m?.order?.shipping_address;
+  if (typeof shipAddr === 'string') {
+    const cleaned = cleanStr(shipAddr);
+    if (cleaned) return cleaned;
+  } else if (shipAddr && typeof shipAddr === 'object') {
+    const parts = [
+      shipAddr.street || shipAddr.address || shipAddr.address_line1,
+      shipAddr.area || shipAddr.lga,
+      shipAddr.city || shipAddr.state,
+    ]
+      .map((p) => cleanStr(p))
+      .filter(Boolean);
+    if (parts.length > 0) return parts.join(', ');
+  }
+
+  const orderAddr = cleanStr(m?.order?.delivery_address);
+  if (orderAddr) return orderAddr;
+
+  const zoneName = cleanStr(m?.zone?.name) || cleanStr(m?.order?.zone?.name);
+  if (zoneName) return `${zoneName} Delivery`;
+
+  return 'Delivered to recipient';
+};
+
+            return (
+              <>
+                {paginatedMissions.map((m) => (
+                  <View key={m.id} style={styles.missionHistoryCard}>
+                    <View style={[styles.historyLeft, { flex: 1, marginRight: 10 }]}>
+                      <View style={styles.historyIconWrap}>
+                        <CheckCircle size={16} color="#16a34a" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.historyRef}>
+                          REF: #{String(m.order_id || m.id).slice(-8).toUpperCase()}
+                        </Text>
+                        <Text style={styles.historyAddress} numberOfLines={1}>
+                          {formatCompletedAddress(m)}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.historyRight}>
+                      <Text style={styles.historyAmount}>
+                        +₦{Number(m.delivery_fee || 1500).toLocaleString('en-NG')}
+                      </Text>
+                      <Text style={styles.historyStatus}>COMPLETED</Text>
+                    </View>
+                  </View>
+                ))}
+
+                {totalPages > 1 && (
+                  <View style={styles.paginationRow}>
+                    <TouchableOpacity
+                      style={[styles.pageBtn, safePage <= 1 && styles.pageBtnDisabled]}
+                      disabled={safePage <= 1}
+                      onPress={() => {
+                        Haptics.selectionAsync().catch(() => {});
+                        setMissionsPage(Math.max(1, safePage - 1));
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.pageBtnText, safePage <= 1 && styles.pageBtnTextDisabled]}>
+                        Prev
+                      </Text>
+                    </TouchableOpacity>
+
+                    <Text style={styles.pageInfo}>
+                      Page {safePage} of {totalPages} ({completedMissions.length})
+                    </Text>
+
+                    <TouchableOpacity
+                      style={[styles.pageBtn, safePage >= totalPages && styles.pageBtnDisabled]}
+                      disabled={safePage >= totalPages}
+                      onPress={() => {
+                        Haptics.selectionAsync().catch(() => {});
+                        setMissionsPage(Math.min(totalPages, safePage + 1));
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <Text
+                        style={[
+                          styles.pageBtnText,
+                          safePage >= totalPages && styles.pageBtnTextDisabled,
+                        ]}
+                      >
+                        Next
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </>
+            );
+          })()
         )}
       </View>
 
@@ -441,6 +681,12 @@ export function LogisticsEarningsTabV2() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <PayoutReceiptModal
+        visible={selectedReceipt !== null}
+        onClose={() => setSelectedReceipt(null)}
+        request={selectedReceipt}
+      />
     </ScrollView>
   );
 }
@@ -460,33 +706,43 @@ const styles = StyleSheet.create({
   },
   readyBalanceCard: {
     flex: 1,
-    backgroundColor: '#ecfdf5',
+    backgroundColor: '#0f172a',
     borderWidth: 1,
-    borderColor: '#a7f3d0',
-    borderRadius: 20,
+    borderColor: '#1e293b',
+    borderRadius: 22,
     padding: 16,
-    gap: 4,
+    gap: 5,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 6,
   },
   escrowCard: {
     flex: 1,
-    backgroundColor: '#fffbeb',
+    backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: '#fde68a',
-    borderRadius: 20,
+    borderColor: '#e2e8f0',
+    borderRadius: 22,
     padding: 16,
-    gap: 4,
+    gap: 5,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   cardHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   cardIconWrapGreen: {
     width: 36,
     height: 36,
     borderRadius: 12,
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    backgroundColor: 'rgba(52, 211, 153, 0.16)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -494,49 +750,53 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 12,
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
     alignItems: 'center',
     justifyContent: 'center',
   },
   badgeGreen: {
-    backgroundColor: '#d1fae5',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
   },
   badgeTextGreen: {
     fontSize: 8.5,
     fontWeight: '900',
-    color: '#065f46',
+    color: '#6ee7b7',
+    letterSpacing: 0.6,
   },
   badgeAmber: {
     backgroundColor: '#fef3c7',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
   },
   badgeTextAmber: {
     fontSize: 8.5,
     fontWeight: '900',
-    color: '#92400e',
+    color: '#b45309',
+    letterSpacing: 0.6,
   },
   cardLabel: {
-    fontSize: 9,
-    fontWeight: '900',
+    fontSize: 9.5,
+    fontWeight: '800',
     color: '#64748b',
-    letterSpacing: 0.5,
+    letterSpacing: 0.7,
   },
   cardValueGreen: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
-    color: '#064e3b',
-    letterSpacing: -0.4,
+    color: '#ffffff',
+    letterSpacing: -0.5,
   },
   cardValueAmber: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
-    color: '#78350f',
-    letterSpacing: -0.4,
+    color: '#0f172a',
+    letterSpacing: -0.5,
   },
   cardSubtext: {
     fontSize: 9.5,
@@ -803,5 +1063,79 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#ffffff',
     letterSpacing: 0.8,
+  },
+  paginationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+  pageBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  pageBtnDisabled: {
+    backgroundColor: '#f8fafc',
+    opacity: 0.55,
+  },
+  pageBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  pageBtnTextDisabled: {
+    color: '#94a3b8',
+  },
+  pageInfo: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  historyToggleBar: {
+    flexDirection: 'row',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 14,
+    padding: 4,
+    gap: 4,
+  },
+  historyToggleBtn: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  historyToggleBtnActive: {
+    backgroundColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  historyToggleText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  historyToggleTextActive: {
+    color: '#0f172a',
+    fontWeight: '800',
+  },
+  payoutStatusPill: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  payoutStatusPillText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.4,
   },
 });

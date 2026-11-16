@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,11 @@ import {
   Alert,
   Share,
   Platform,
+  Modal,
+  Animated,
+  Dimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../../navigation/types';
@@ -39,13 +43,15 @@ import {
   ShieldCheck,
 } from 'lucide-react-native';
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
 interface CategoryItem {
   id: string;
   name: string;
   slug?: string;
 }
 
-export function MenuScreen() {
+export function MenuScreen({ onClose }: { onClose?: () => void } = {}) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { user, profile, signOut } = useAuth();
 
@@ -95,19 +101,25 @@ export function MenuScreen() {
   }, [user]);
 
   const handleClose = () => {
-    Haptics.selectionAsync();
-    navigation.navigate('MainTabs', { screen: 'HomeTab' });
+    Haptics.selectionAsync().catch(() => {});
+    if (onClose) {
+      onClose();
+    } else {
+      navigation.navigate('MainTabs', { screen: 'HomeTab' });
+    }
   };
 
   const handleNavClick = (label: string, action: () => void) => {
-    Haptics.selectionAsync();
+    Haptics.selectionAsync().catch(() => {});
     setSelectedNav(label);
+    onClose?.();
     action();
   };
 
   const handleCategorySelect = (categoryName: string) => {
-    Haptics.selectionAsync();
+    Haptics.selectionAsync().catch(() => {});
     setSelectedCategory(categoryName);
+    onClose?.();
     navigation.navigate('MainTabs', {
       screen: 'HomeTab',
       params: { category: categoryName },
@@ -125,7 +137,19 @@ export function MenuScreen() {
     }
   };
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    if (Platform.OS === 'web') {
+      const ok =
+        typeof window !== 'undefined' && typeof window.confirm === 'function'
+          ? window.confirm('Are you sure you want to log out of Linkup?')
+          : true;
+      if (ok) {
+        await signOut();
+        onClose?.();
+        navigation.navigate('MainTabs', { screen: 'HomeTab' });
+      }
+      return;
+    }
     Alert.alert('Log Out', 'Are you sure you want to log out of Linkup?', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -133,15 +157,18 @@ export function MenuScreen() {
         style: 'destructive',
         onPress: async () => {
           await signOut();
+          onClose?.();
           navigation.navigate('MainTabs', { screen: 'HomeTab' });
         },
       },
     ]);
   };
 
+  const Wrapper: any = onClose ? View : SafeView;
+  const wrapperProps = onClose ? { style: { flex: 1 } } : { edges: ['top', 'left', 'right'] };
 
   return (
-    <SafeView edges={['top', 'left', 'right']}>
+    <Wrapper {...wrapperProps}>
       {/* Drawer Header */}
       <View style={styles.header}>
         {/* Brand Logo & Name */}
@@ -533,16 +560,154 @@ export function MenuScreen() {
       <TouchableOpacity
         style={styles.floatingSupportBtn}
         onPress={() => {
-          Haptics.selectionAsync();
+          Haptics.selectionAsync().catch(() => {});
+          onClose?.();
           navigation.navigate('Support');
         }}
         activeOpacity={0.85}
       >
         <Headphones size={22} color="#ffffff" strokeWidth={2.3} />
       </TouchableOpacity>
-    </SafeView>
+    </Wrapper>
   );
 }
+
+export function MenuDrawerModal({
+  visible,
+  onClose,
+}: {
+  visible: boolean;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const drawerWidth = Math.max(Math.round(SCREEN_WIDTH * 0.5), 220);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideXAnim = useRef(new Animated.Value(drawerWidth)).current;
+  const closingRef = useRef(false);
+
+  useEffect(() => {
+    if (visible) {
+      closingRef.current = false;
+      fadeAnim.setValue(0);
+      slideXAnim.setValue(drawerWidth);
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.spring(slideXAnim, {
+          toValue: 0,
+          damping: 22,
+          stiffness: 220,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visible, drawerWidth]);
+
+  if (!visible) return null;
+
+  const dismissDrawer = () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 160,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideXAnim, {
+        toValue: drawerWidth,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      onClose();
+    });
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      onRequestClose={dismissDrawer}
+      statusBarTranslucent
+    >
+      <View style={drawerStyles.overlay}>
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            drawerStyles.backdrop,
+            Platform.OS === 'web' &&
+              ({
+                backdropFilter: 'blur(10px)',
+                WebkitBackdropFilter: 'blur(10px)',
+              } as any),
+            { opacity: fadeAnim },
+          ]}
+        />
+
+        {/* Tap outside drawer to close */}
+        <TouchableOpacity
+          style={drawerStyles.backdropTouch}
+          activeOpacity={1}
+          onPress={dismissDrawer}
+          accessibilityRole="button"
+          accessibilityLabel="Close menu"
+        />
+
+        {/* Half-width full-height drawer */}
+        <Animated.View
+          onStartShouldSetResponder={() => true}
+          style={[
+            drawerStyles.drawer,
+            {
+              width: drawerWidth,
+              paddingTop: Math.max(insets.top, 8),
+              paddingBottom: Math.max(insets.bottom, 8),
+              transform: [{ translateX: slideXAnim }],
+            },
+          ]}
+        >
+          <MenuScreen onClose={dismissDrawer} />
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
+const drawerStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    position: 'relative',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.36)',
+  },
+  backdropTouch: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  drawer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderBottomLeftRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOffset: { width: -8, height: 0 },
+    shadowOpacity: 0.16,
+    shadowRadius: 24,
+    elevation: 20,
+    borderLeftWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.9)',
+  },
+});
 
 const styles = StyleSheet.create({
   header: {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,9 @@ import {
   AlertTriangle,
   ArrowRight,
   User,
+  Settings,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react-native';
 import { colors } from '../../../../theme/colors';
 import { supabase } from '../../../../services/supabase';
@@ -35,15 +38,95 @@ export function AdminPayoutsTab() {
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
+  const statusFilterRef = useRef(statusFilter);
+  statusFilterRef.current = statusFilter;
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [adminNotes, setAdminNotes] = useState('');
   const [runningAction, setRunningAction] = useState<string | null>(null);
 
-  const fetchPayoutRequests = async () => {
+  // System settings (matching Web AdminPayoutManager)
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [feeInput, setFeeInput] = useState('100');
+  const [intervalInput, setIntervalInput] = useState('7');
+  const [releaseDaysInput, setReleaseDaysInput] = useState('3');
+  const [sendRiderDelayInput, setSendRiderDelayInput] = useState('24');
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  const fetchSystemSettings = async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any).from('system_settings').select('*');
+      if (error || !data) return;
+
+      const withdrawalFee = data.find((s: any) => s.key === 'withdrawal_fee')?.value;
+      const payoutInterval = data.find((s: any) => s.key === 'payout_interval_days')?.value;
+      const escrowRelease = data.find((s: any) => s.key === 'escrow_release_days')?.value;
+      const sendRiderDelay = data.find((s: any) => s.key === 'send_rider_payout_delay_hours')?.value;
+
+      if (withdrawalFee !== undefined && withdrawalFee !== null) {
+        const amt =
+          typeof withdrawalFee === 'object' && 'amount' in withdrawalFee
+            ? withdrawalFee.amount
+            : withdrawalFee;
+        if (amt !== undefined && amt !== null) setFeeInput(String(amt));
+      }
+      if (payoutInterval !== undefined && payoutInterval !== null) {
+        setIntervalInput(String(payoutInterval));
+      }
+      if (escrowRelease !== undefined && escrowRelease !== null) {
+        setReleaseDaysInput(String(escrowRelease));
+      }
+      if (sendRiderDelay !== undefined && sendRiderDelay !== null) {
+        setSendRiderDelayInput(String(sendRiderDelay));
+      }
+    } catch (err) {
+      console.warn('[AdminPayoutsTab] Settings fetch error:', err);
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    const fee = Number(feeInput);
+    const interval = Number(intervalInput);
+    const release = Number(releaseDaysInput);
+    const sendRiderDelay = Number(sendRiderDelayInput);
+
+    if ([fee, interval, release, sendRiderDelay].some((n) => isNaN(n) || n < 0)) {
+      toast.error('Invalid values', { description: 'All settings must be valid non-negative numbers.' });
+      return;
+    }
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setSavingSettings(true);
+    try {
+      const updates = [
+        { key: 'withdrawal_fee', value: { amount: fee, type: 'flat' } },
+        { key: 'payout_interval_days', value: interval },
+        { key: 'escrow_release_days', value: release },
+        { key: 'send_rider_payout_delay_hours', value: sendRiderDelay },
+      ];
+
+      for (const item of updates) {
+        const { error } = await (supabase as any)
+          .from('system_settings')
+          .upsert(item, { onConflict: 'key' });
+        if (error) throw error;
+      }
+
+      toast.success('System Settings Saved', {
+        description: `Withdrawal fee set to ₦${fee.toLocaleString()}.`,
+      });
+    } catch (err: any) {
+      toast.error('Failed to save settings', { description: err.message });
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const fetchPayoutRequests = async (filter = statusFilter) => {
+    try {
+      setLoading(true);
+      let query = supabase
         .from('payout_requests')
         .select(`
           *,
@@ -51,6 +134,16 @@ export function AdminPayoutsTab() {
         `)
         .order('created_at', { ascending: false })
         .limit(60);
+
+      if (filter !== 'all') {
+        if (filter === 'approved') {
+          query = query.in('status', ['approved', 'paid']);
+        } else {
+          query = query.eq('status', filter);
+        }
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       setRequests(data || []);
@@ -63,7 +156,7 @@ export function AdminPayoutsTab() {
   };
 
   useEffect(() => {
-    fetchPayoutRequests();
+    fetchSystemSettings();
 
     const channel = supabase
       .channel('admin-payouts-rt')
@@ -71,7 +164,14 @@ export function AdminPayoutsTab() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'payout_requests' },
         () => {
-          fetchPayoutRequests();
+          fetchPayoutRequests(statusFilterRef.current);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'system_settings' },
+        () => {
+          fetchSystemSettings();
         }
       )
       .subscribe();
@@ -80,6 +180,11 @@ export function AdminPayoutsTab() {
       supabase.removeChannel(channel);
     };
   }, []);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    fetchPayoutRequests(statusFilter);
+  }, [statusFilter]);
 
   const handleUpdatePayoutStatus = async (newStatus: string) => {
     if (!selectedRequest) return;
@@ -92,7 +197,6 @@ export function AdminPayoutsTab() {
         .update({
           status: newStatus,
           admin_notes: adminNotes.trim() || undefined,
-          processed_at: new Date().toISOString(),
         })
         .eq('id', selectedRequest.id);
 
@@ -153,13 +257,13 @@ export function AdminPayoutsTab() {
 
   const formatNaira = (val: number) => '₦' + (val || 0).toLocaleString('en-NG');
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [statusFilter]);
-
   const filteredRequests = requests.filter((r) => {
     if (statusFilter === 'all') return true;
-    return r.status === statusFilter;
+    const normalized = (r.status || '').toLowerCase();
+    if (statusFilter === 'approved') {
+      return normalized === 'approved' || normalized === 'paid';
+    }
+    return normalized === statusFilter;
   });
 
   const totalPages = Math.ceil(filteredRequests.length / PAGE_SIZE) || 1;
@@ -169,7 +273,9 @@ export function AdminPayoutsTab() {
   );
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
+    switch ((status || '').toLowerCase()) {
+      case 'completed':
+        return { text: '#047857', bg: '#D1FAE5', border: '#6EE7B7', label: 'Completed' };
       case 'approved':
       case 'paid':
         return { text: '#059669', bg: '#ECFDF5', border: '#A7F3D0', label: 'Approved' };
@@ -230,9 +336,103 @@ export function AdminPayoutsTab() {
         </View>
       </View>
 
+      {/* Payout & Escrow System Settings */}
+      <View style={styles.settingsCard}>
+        <TouchableOpacity
+          style={styles.settingsHeader}
+          activeOpacity={0.75}
+          onPress={() => {
+            Haptics.selectionAsync();
+            setSettingsOpen((prev) => !prev);
+          }}
+        >
+          <View style={styles.settingsHeaderLeft}>
+            <View style={styles.settingsIconWrap}>
+              <Settings size={15} color={colors.primary} />
+            </View>
+            <View>
+              <Text style={styles.settingsTitle}>Withdrawal Fee & Payout Rules</Text>
+              <Text style={styles.settingsSub}>
+                Fee: ₦{Number(feeInput || 0).toLocaleString()} • Interval: {intervalInput || 0}d • Escrow: {releaseDaysInput || 0}d
+              </Text>
+            </View>
+          </View>
+          {settingsOpen ? (
+            <ChevronUp size={18} color="#64748B" />
+          ) : (
+            <ChevronDown size={18} color="#64748B" />
+          )}
+        </TouchableOpacity>
+
+        {settingsOpen && (
+          <View style={styles.settingsBody}>
+            <View style={styles.settingsGrid}>
+              <View style={styles.settingsField}>
+                <Text style={styles.settingsFieldLabel}>Withdrawal Fee (₦)</Text>
+                <TextInput
+                  style={styles.settingsInput}
+                  keyboardType="numeric"
+                  value={feeInput}
+                  onChangeText={setFeeInput}
+                  placeholder="100"
+                  placeholderTextColor="#94A3B8"
+                />
+              </View>
+
+              <View style={styles.settingsField}>
+                <Text style={styles.settingsFieldLabel}>Payout Interval (Days)</Text>
+                <TextInput
+                  style={styles.settingsInput}
+                  keyboardType="numeric"
+                  value={intervalInput}
+                  onChangeText={setIntervalInput}
+                  placeholder="7"
+                  placeholderTextColor="#94A3B8"
+                />
+              </View>
+
+              <View style={styles.settingsField}>
+                <Text style={styles.settingsFieldLabel}>Escrow Release (Days)</Text>
+                <TextInput
+                  style={styles.settingsInput}
+                  keyboardType="numeric"
+                  value={releaseDaysInput}
+                  onChangeText={setReleaseDaysInput}
+                  placeholder="3"
+                  placeholderTextColor="#94A3B8"
+                />
+              </View>
+
+              <View style={styles.settingsField}>
+                <Text style={styles.settingsFieldLabel}>Send Rider Delay (Hrs)</Text>
+                <TextInput
+                  style={styles.settingsInput}
+                  keyboardType="numeric"
+                  value={sendRiderDelayInput}
+                  onChangeText={setSendRiderDelayInput}
+                  placeholder="24"
+                  placeholderTextColor="#94A3B8"
+                />
+              </View>
+            </View>
+
+            <Button
+              title={savingSettings ? 'Saving...' : 'Save Payout Settings'}
+              loading={savingSettings}
+              onPress={handleSaveSettings}
+              style={{ marginTop: 12 }}
+            />
+          </View>
+        )}
+      </View>
+
       {/* Filter Chips */}
-      <View style={styles.filterRow}>
-        {['all', 'pending', 'approved', 'rejected'].map((s) => {
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterRow}
+      >
+        {['all', 'pending', 'approved', 'completed', 'rejected'].map((s) => {
           const active = statusFilter === s;
           return (
             <TouchableOpacity
@@ -250,7 +450,7 @@ export function AdminPayoutsTab() {
             </TouchableOpacity>
           );
         })}
-      </View>
+      </ScrollView>
 
       {/* Requests List */}
       {loading ? (
@@ -330,96 +530,114 @@ export function AdminPayoutsTab() {
         onClose={() => setSelectedRequest(null)}
         title="Payout Request Review"
       >
-        {selectedRequest && (
-          <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
-            {/* Amount Banner */}
-            <View style={styles.modalHighlightBox}>
-              <View>
-                <Text style={styles.modalHighlightLabel}>WITHDRAWAL AMOUNT</Text>
-                <Text style={styles.modalHighlightAmount}>
-                  {formatNaira(selectedRequest.amount)}
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.statusBadgeLarge,
-                  {
-                    backgroundColor: getStatusBadge(selectedRequest.status).bg,
-                    borderColor: getStatusBadge(selectedRequest.status).border,
-                  },
-                ]}
-              >
-                <Text
+        {selectedRequest && (() => {
+          const currentStatus = (selectedRequest.status || 'pending').toLowerCase();
+          return (
+            <View style={{ paddingBottom: 12 }}>
+              {/* Top Approval / Rejection Actions (immediately visible at top of card) */}
+              {(currentStatus === 'pending' || currentStatus === 'approved') && (
+                <View style={[styles.decisionActions, { marginTop: 0, marginBottom: 14 }]}>
+                  {currentStatus === 'pending' && (
+                    <View style={{ flexDirection: 'row', gap: 10 }}>
+                      <Button
+                        title="Mark as Paid"
+                        onPress={() => handleUpdatePayoutStatus('approved')}
+                        loading={updatingStatus}
+                        icon={CheckCircle2}
+                        style={{ flex: 1, backgroundColor: '#059669' }}
+                      />
+                      <Button
+                        title="Reject"
+                        variant="outline"
+                        onPress={() => handleUpdatePayoutStatus('rejected')}
+                        loading={updatingStatus}
+                        icon={XCircle}
+                        style={{ flex: 1, borderColor: '#FECACA' }}
+                      />
+                    </View>
+                  )}
+                  {currentStatus === 'approved' && (
+                    <Button
+                      title="Complete Payment"
+                      onPress={() => handleUpdatePayoutStatus('completed')}
+                      loading={updatingStatus}
+                      icon={CheckCircle2}
+                      style={{ backgroundColor: '#059669' }}
+                    />
+                  )}
+                </View>
+              )}
+
+              {/* Amount Banner */}
+              <View style={styles.modalHighlightBox}>
+                <View>
+                  <Text style={styles.modalHighlightLabel}>WITHDRAWAL AMOUNT</Text>
+                  <Text style={styles.modalHighlightAmount}>
+                    {formatNaira(selectedRequest.amount)}
+                  </Text>
+                </View>
+                <View
                   style={[
-                    styles.statusTextLarge,
-                    { color: getStatusBadge(selectedRequest.status).text },
+                    styles.statusBadgeLarge,
+                    {
+                      backgroundColor: getStatusBadge(selectedRequest.status).bg,
+                      borderColor: getStatusBadge(selectedRequest.status).border,
+                    },
                   ]}
                 >
-                  {getStatusBadge(selectedRequest.status).label.toUpperCase()}
-                </Text>
+                  <Text
+                    style={[
+                      styles.statusTextLarge,
+                      { color: getStatusBadge(selectedRequest.status).text },
+                    ]}
+                  >
+                    {getStatusBadge(selectedRequest.status).label.toUpperCase()}
+                  </Text>
+                </View>
               </View>
-            </View>
 
-            {/* Bank Transfer Details */}
-            <View style={styles.detailSection}>
-              <Text style={styles.detailSectionTitle}>Destination Bank Account</Text>
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Bank Name</Text>
-                <Text style={styles.detailValue}>{selectedRequest.bank_name}</Text>
+              {/* Bank Transfer Details */}
+              <View style={styles.detailSection}>
+                <Text style={styles.detailSectionTitle}>Destination Bank Account</Text>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Bank Name</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.bank_name}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Account Number</Text>
+                  <Text style={[styles.detailValue, { fontFamily: 'monospace' }]}>
+                    {selectedRequest.account_number}
+                  </Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Account Name</Text>
+                  <Text style={styles.detailValue}>
+                    {selectedRequest.account_name || selectedRequest.profiles?.display_name || 'N/A'}
+                  </Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Requested At</Text>
+                  <Text style={styles.detailValue}>
+                    {new Date(selectedRequest.created_at).toLocaleString()}
+                  </Text>
+                </View>
               </View>
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Account Number</Text>
-                <Text style={[styles.detailValue, { fontFamily: 'monospace' }]}>
-                  {selectedRequest.account_number}
-                </Text>
-              </View>
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Account Name</Text>
-                <Text style={styles.detailValue}>
-                  {selectedRequest.account_name || selectedRequest.profiles?.display_name || 'N/A'}
-                </Text>
-              </View>
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Requested At</Text>
-                <Text style={styles.detailValue}>
-                  {new Date(selectedRequest.created_at).toLocaleString()}
-                </Text>
-              </View>
-            </View>
 
-            {/* Admin Notes */}
-            <View style={styles.detailSection}>
-              <Text style={styles.detailSectionTitle}>Admin Transaction Reference / Notes</Text>
-              <TextInput
-                placeholder="Bank transfer transaction reference or reason..."
-                placeholderTextColor="#94A3B8"
-                style={styles.notesInput}
-                value={adminNotes}
-                onChangeText={setAdminNotes}
-                multiline
-              />
+              {/* Admin Notes */}
+              <View style={styles.detailSection}>
+                <Text style={styles.detailSectionTitle}>Admin Transaction Reference / Notes</Text>
+                <TextInput
+                  placeholder="Bank transfer transaction reference or reason..."
+                  placeholderTextColor="#94A3B8"
+                  style={styles.notesInput}
+                  value={adminNotes}
+                  onChangeText={setAdminNotes}
+                  multiline
+                />
+              </View>
             </View>
-
-            {/* Approval / Rejection Buttons */}
-            <View style={styles.decisionActions}>
-              <Button
-                title="Mark as Paid / Approved"
-                onPress={() => handleUpdatePayoutStatus('approved')}
-                loading={updatingStatus}
-                icon={CheckCircle2}
-                style={{ backgroundColor: '#059669', marginBottom: 10 }}
-              />
-              <Button
-                title="Reject Withdrawal Request"
-                variant="outline"
-                onPress={() => handleUpdatePayoutStatus('rejected')}
-                loading={updatingStatus}
-                icon={XCircle}
-                style={{ borderColor: '#FECACA' }}
-              />
-            </View>
-          </ScrollView>
-        )}
+          );
+        })()}
       </AppModal>
     </View>
   );
@@ -666,5 +884,75 @@ const styles = StyleSheet.create({
   decisionActions: {
     marginTop: 4,
     marginBottom: 20,
+  },
+  settingsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 14,
+    overflow: 'hidden',
+  },
+  settingsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+  },
+  settingsHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  settingsIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#FFF7ED',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  settingsSub: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  settingsBody: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    paddingTop: 12,
+  },
+  settingsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  settingsField: {
+    width: '48%',
+  },
+  settingsFieldLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569',
+    marginBottom: 4,
+  },
+  settingsInput: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
   },
 });

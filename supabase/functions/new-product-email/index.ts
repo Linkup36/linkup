@@ -141,8 +141,28 @@ serve(async (req: Request) => {
       });
     }
 
-    // 3. Format product visuals and details
-    const formattedPrice = `₦${Number(productPrice).toLocaleString("en-NG", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+    // 3. Fetch active platform product commission rate from fee_config
+    let platformProductRate = 0.10;
+    const { data: feeConfigs, error: feeConfigError } = await adminClient
+      .from("fee_config")
+      .select("fee_type, rate")
+      .eq("is_active", true)
+      .in("fee_type", ["platform_product", "platform"]);
+
+    if (!feeConfigError && feeConfigs && feeConfigs.length > 0) {
+      const productFeeConfig =
+        feeConfigs.find((f: any) => f.fee_type === "platform_product") ??
+        feeConfigs.find((f: any) => f.fee_type === "platform");
+      if (productFeeConfig?.rate !== undefined && productFeeConfig?.rate !== null) {
+        platformProductRate = Number(productFeeConfig.rate);
+      }
+    }
+
+    const markupMultiplier = 1 + platformProductRate;
+    const buyerDisplayPrice = Number(productPrice) * markupMultiplier;
+
+    // 4. Format product visuals and details
+    const formattedPrice = `₦${buyerDisplayPrice.toLocaleString("en-NG", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
     const mainImage = Array.isArray(images) && images.length > 0 ? images[0] : "https://www.linkupng.com/order.png";
     const productUrl = `https://www.linkupng.com/product/${productId}`;
     const truncatedDesc = productDescription.length > 180 ? `${productDescription.slice(0, 180)}...` : productDescription;

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { MainTabParamList } from './types';
 import { Home, Search, Send, ShoppingCart, Grid } from 'lucide-react-native';
@@ -10,7 +10,7 @@ import { HomeScreen } from '../features/marketplace/screens/HomeScreen';
 import { SearchScreen } from '../features/marketplace/screens/SearchScreen';
 import { SendPackageScreen } from '../features/send/screens/SendPackageScreen';
 import { CartScreen } from '../features/marketplace/screens/CartScreen';
-import { MenuScreen } from '../features/user/screens/MenuScreen';
+import { MenuScreen, MenuDrawerModal } from '../features/user/screens/MenuScreen';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
@@ -18,8 +18,10 @@ export const BRAND_ORANGE = '#E96F28';
 
 export function BottomTabNavigator() {
   const { totalCount } = useCart();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
+    <>
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
@@ -150,12 +152,16 @@ export function BottomTabNavigator() {
           ),
         }}
         listeners={{
-          tabPress: () => {
+          tabPress: (e) => {
+            e.preventDefault();
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            setIsMenuOpen(true);
           },
         }}
       />
     </Tab.Navigator>
+    <MenuDrawerModal visible={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
+    </>
   );
 }
 
